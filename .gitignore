@@ -1,0 +1,24 @@
+# Configuração local da camada de IA (contém a chave de API real) — nunca
+# deve ser versionada. Ver .env.example para o template.
+.env
+
+# Ambiente virtual e artefatos Python.
+.venv/
+__pycache__/
+*.pyc
+
+# Saídas geradas a cada execução (ver CLAUDE.md) — não fazem parte do
+# código-fonte.
+logs/
+resultado/
+
+# Dados reais de ERP/banco (contêm informações financeiras da empresa) —
+# nunca devem ser versionados.
+dados/
+
+# Cache de testes.
+.pytest_cache/
+.test_tmp/
+
+# Configurações locais do Claude Code (específicas desta máquina).
+.claude/settings.local.json

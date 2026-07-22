@@ -1,0 +1,7 @@
+pandas
+openpyxl
+ofxparse
+python-dateutil
+pytest
+groq
+python-dotenv
