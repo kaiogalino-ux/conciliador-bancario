@@ -9,7 +9,7 @@ dados/
   ERP/       -> Excel exportado do GestãoClick (o mais recente é usado automaticamente)
   Banco/     -> Extrato bancário (.ofx, .xlsx ou .xls) (o mais recente é usado automaticamente)
 resultado/
-  Resultado.xlsx  -> gerado a cada execução, com 3 abas (ver abaixo)
+  Resultado.xlsx  -> gerado a cada execução, com 2 abas (ver abaixo)
 logs/
   conciliador_AAAAMMDD.log
 src/
@@ -39,20 +39,21 @@ Esta estrutura não deve ser alterada sem autorização — o projeto deve apena
    ```
    python main.py
    ```
-5. **Resultado**: o arquivo gerado fica em `resultado/Resultado.xlsx`, com 3 abas:
-   - **Resultado** — todos os lançamentos, um por linha, com Status, Tipo Conciliação, Motivo Revisão, ID Lote etc.
-   - **Diagnóstico Revisão Manual** — só os lançamentos em Revisão Manual, agrupados por motivo.
-   - **Diagnóstico Lotes NET EMP** — um lote de salário/férias/rescisão por linha, mostrando o resultado de cada tentativa (total direto, combinação exata única, nome/descrição) e o status final. A conciliação do lote é sempre automática — não há nenhuma aba ou coluna para marcação manual.
+5. **Resultado**: o arquivo gerado fica em `resultado/Resultado.xlsx`, com 2 abas:
+   - **Resumo** — painel executivo com 5 cards (Total na Gestão, Total no Banco, Conciliado, Revisão Manual, Somente no Banco) e a tabela "Itens pendentes de análise".
+   - **Base Detalhada** — todos os lançamentos, um por linha, com Status, Tipo Conciliação, Motivo Revisão, ID Lote etc. A conciliação do lote é sempre automática — não há nenhuma aba ou coluna para marcação manual.
 
    Os logs de cada execução ficam em `logs/`.
 
 ## Resumo das regras de conciliação
 
-- A data do ERP usada é a **Data de compensação**; se não existir, cai para Data de pagamento/confirmação e, por último, Vencimento — sempre linha a linha.
+- A data do ERP usada é a **Data de compensação**; se não estiver preenchida, usa Data de pagamento/baixa/confirmação, sempre linha a linha.
+- **Vencimento nunca é usado para conciliar**: ele é preservado apenas para auditoria. Se o lançamento não tiver nenhuma data real de pagamento/compensação, vai para `Revisão Manual` com motivo explícito.
+- ERP e banco só conciliam quando estiverem na **mesma data**. A tolerância global é `0 dia`, inclusive para a camada de IA.
 - O banco só considera **débitos** (créditos/PIX recebido/depósito são descartados antes de conciliar).
 - A comparação de valor é sempre pelo **valor absoluto**.
 - Conciliação tenta resolver **individualmente** antes de qualquer agrupamento: par único → duplicidade idêntica → desempate por nome/descrição → duplicidade equivalente (NF diferente, mesmo fornecedor).
-- Lançamentos "PGTO ... VIA NET EMP/EMPR" (salário, férias, rescisão, 13º) nunca conciliam individualmente — são resolvidos por **lote**, sempre automaticamente: total direto, depois combinação exata única de valores (só quando existe exatamente 1 possível), depois nome/descrição (só se o banco trouxer identificador).
+- No lado do **banco**, um lançamento claramente identificado como lote NET EMP/EMPR (salário, férias, rescisão ou 13º) fica reservado e nunca participa da conciliação individual. No lado do **ERP**, esses pagamentos tentam primeiro a conciliação individual contra lançamentos bancários comuns, sempre na mesma data e somente quando há nome/descrição forte compatível; o que não encontrar par seguro segue para o fechamento automático do lote.
 - PIX/TED/DOC individuais nunca entram na regra de lote.
 - **Nunca adivinha**: sem sinal seguro de correspondência, o lançamento fica em Revisão Manual.
 - Status possíveis: `Conciliado`, `Revisão Manual`, `Não encontrado no banco`, `Somente banco`.

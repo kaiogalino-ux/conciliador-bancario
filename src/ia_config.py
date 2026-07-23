@@ -25,8 +25,8 @@ IA_MODO_SOMBRA = "SOMBRA"
 IA_MODO_AUTOMATICO = "AUTOMATICO"
 MODOS_VALIDOS = (IA_MODO_DESATIVADA, IA_MODO_SOMBRA, IA_MODO_AUTOMATICO)
 
-_DEFAULT_JANELA_BUSCA_DIAS = 5
-_DEFAULT_JANELA_AUTOMATICA_DIAS = 1
+_DEFAULT_JANELA_BUSCA_DIAS = 0
+_DEFAULT_JANELA_AUTOMATICA_DIAS = 0
 _DEFAULT_MAXIMO_CANDIDATOS = 5
 _DEFAULT_CONFIANCA_MINIMA_SOMBRA = 0.70
 _DEFAULT_CONFIANCA_MINIMA_AUTOMATICO = 0.95
@@ -57,24 +57,52 @@ class ConfiguracaoIA:
         )
 
 
-def _ler_int(nome: str, default: int) -> int:
+def _ler_int(
+    nome: str,
+    default: int,
+    logger: logging.Logger,
+    minimo: int,
+    maximo: int,
+) -> int:
     valor = os.environ.get(nome)
     if valor is None or not valor.strip():
         return default
     try:
-        return int(valor.strip())
+        numero = int(valor.strip())
     except ValueError:
+        logger.warning(f"{nome} inválido; usando o padrão {default}.")
         return default
+    if not minimo <= numero <= maximo:
+        logger.warning(
+            f"{nome} fora do intervalo permitido ({minimo} a {maximo}); "
+            f"usando o padrão {default}."
+        )
+        return default
+    return numero
 
 
-def _ler_float(nome: str, default: float) -> float:
+def _ler_float(
+    nome: str,
+    default: float,
+    logger: logging.Logger,
+    minimo: float,
+    maximo: float,
+) -> float:
     valor = os.environ.get(nome)
     if valor is None or not valor.strip():
         return default
     try:
-        return float(valor.strip())
+        numero = float(valor.strip())
     except ValueError:
+        logger.warning(f"{nome} inválido; usando o padrão {default}.")
         return default
+    if not minimo <= numero <= maximo:
+        logger.warning(
+            f"{nome} fora do intervalo permitido ({minimo} a {maximo}); "
+            f"usando o padrão {default}."
+        )
+        return default
+    return numero
 
 
 def carregar_configuracao_ia(logger: logging.Logger | None = None) -> ConfiguracaoIA:
@@ -112,15 +140,36 @@ def carregar_configuracao_ia(logger: logging.Logger | None = None) -> Configurac
         )
         return ConfiguracaoIA.desativada()
 
+    janela_busca_dias = _ler_int(
+        "IA_JANELA_BUSCA_DIAS", _DEFAULT_JANELA_BUSCA_DIAS, logger, 0, 0
+    )
+    janela_automatica_dias = _ler_int(
+        "IA_JANELA_AUTOMATICA_DIAS", _DEFAULT_JANELA_AUTOMATICA_DIAS, logger, 0, 0
+    )
+    maximo_candidatos = _ler_int(
+        "IA_MAXIMO_CANDIDATOS", _DEFAULT_MAXIMO_CANDIDATOS, logger, 1, 5
+    )
+    confianca_minima_sombra = _ler_float(
+        "IA_CONFIANCA_MINIMA_SOMBRA", _DEFAULT_CONFIANCA_MINIMA_SOMBRA, logger, 0.0, 1.0
+    )
+    confianca_minima_automatico = _ler_float(
+        "IA_CONFIANCA_MINIMA_AUTOMATICO", _DEFAULT_CONFIANCA_MINIMA_AUTOMATICO, logger, 0.0, 1.0
+    )
+    if confianca_minima_automatico < confianca_minima_sombra:
+        logger.warning(
+            "IA_CONFIANCA_MINIMA_AUTOMATICO não pode ser menor que "
+            "IA_CONFIANCA_MINIMA_SOMBRA; usando o padrão automático "
+            f"{_DEFAULT_CONFIANCA_MINIMA_AUTOMATICO}."
+        )
+        confianca_minima_automatico = _DEFAULT_CONFIANCA_MINIMA_AUTOMATICO
+
     return ConfiguracaoIA(
         modo=modo,
         api_key=api_key,
         modelo=modelo,
-        janela_busca_dias=_ler_int("IA_JANELA_BUSCA_DIAS", _DEFAULT_JANELA_BUSCA_DIAS),
-        janela_automatica_dias=_ler_int("IA_JANELA_AUTOMATICA_DIAS", _DEFAULT_JANELA_AUTOMATICA_DIAS),
-        maximo_candidatos=_ler_int("IA_MAXIMO_CANDIDATOS", _DEFAULT_MAXIMO_CANDIDATOS),
-        confianca_minima_sombra=_ler_float("IA_CONFIANCA_MINIMA_SOMBRA", _DEFAULT_CONFIANCA_MINIMA_SOMBRA),
-        confianca_minima_automatico=_ler_float(
-            "IA_CONFIANCA_MINIMA_AUTOMATICO", _DEFAULT_CONFIANCA_MINIMA_AUTOMATICO
-        ),
+        janela_busca_dias=janela_busca_dias,
+        janela_automatica_dias=janela_automatica_dias,
+        maximo_candidatos=maximo_candidatos,
+        confianca_minima_sombra=confianca_minima_sombra,
+        confianca_minima_automatico=confianca_minima_automatico,
     )

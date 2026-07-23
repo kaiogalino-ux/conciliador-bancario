@@ -14,7 +14,7 @@ Conciliador_Bancario/
 │   ├── ERP/          Excel exportado do GestãoClick
 │   └── Banco/         Extrato bancário (.ofx, .xlsx ou .xls)
 ├── resultado/
-│   └── Resultado.xlsx  gerado a cada execução (aba única, 2026-07-10-b)
+│   └── Resultado.xlsx  gerado a cada execução (abas "Resumo" e "Base Detalhada", 2026-07-23)
 ├── logs/                um arquivo de log por dia
 ├── src/                 código-fonte
 ├── tests/                testes automáticos (pytest)
@@ -94,12 +94,12 @@ Somente estes quatro valores existem na coluna "Status":
 8. Desempatar duplicidades de valor/data por descrição/nome.
 9. Conciliar duplicidade idêntica individual.
 10. Conciliar duplicidade equivalente individual.
-11. (Fase de tolerância de datas — só pagamentos individuais, 1 dia, com nome/descrição forte obrigatória; nunca lote NET EMP — 2026-07-10; roda entre os passos 7/10 e 12 para o que sobrou sem par exato, ver `conciliador.py`.)
+11. Executar a fase estrutural de correspondências remanescentes com janela de **0 dia**; ela só pode comparar a mesma data e nunca concilia por proximidade.
 12. Conciliar lote NET EMP/EMPR por soma consolidada (por data EXATA e tipo — sem tolerância de data desde 2026-07-10).
 13. Verificação final de possível par para o que sobrou antes de virar "Não encontrado no banco" (2026-07-10, ver "Regra de recuperação de Não encontrado no banco" abaixo) — só sobre o que sobrou de todas as fases acima.
 14. Finalizar o que ainda não teve par nenhum como "Não encontrado no banco" / "Somente banco".
 15. Gerar `Resultado.xlsx`.
-16. Consolidar cada par ERP × Banco conciliado numa única linha (2026-07-10-b) e gerar a aba única "Resultado".
+16. Consolidar cada par ERP × Banco conciliado numa única linha (2026-07-10-b) e gerar as abas "Resumo" e "Base Detalhada" (2026-07-23).
 
 ## Regras de desempate por descrição/nome
 
@@ -153,7 +153,7 @@ Nunca adivinha. Fica em Revisão Manual quando:
 - quantidade divergente entre ERP e banco para a mesma descrição;
 - indício de duplicidade equivalente não confirmável (quantidade ou concorrência);
 - lançamento de Salário/Folha/Férias/Rescisão/13º com valor+data batendo mas sem nome/descrição forte e sem lote NET EMP ativo na data exata (`Remuneração/salário sem nome/descrição forte antes do lote`, 2026-07-10);
-- pagamento individual com 1 dia de diferença de data, candidato único, mas sem nome/descrição forte (`Possível par com divergência de data (sem nome/descrição forte)`, 2026-07-10);
+- possível par com mesmo valor em outra data (`Possível par encontrado em data diferente; conciliação exige a mesma data`, regra global de 2026-07-23);
 - lote NET EMP não fecha em nenhuma das 3 etapas automáticas (total direto, combinação única, nome/descrição), inclusive por divergência de data (2026-07-10);
 - ERP sem nenhuma data de pagamento/compensação real, só vencimento (`ERP sem data de pagamento/compensação; vencimento não é usado para conciliação`, 2026-07-10);
 - verificação final de "Não encontrado no banco" achou indício mas não segurança suficiente (ver seção acima, 2026-07-10);
@@ -163,11 +163,18 @@ O "Motivo Revisão" identifica qual dessas categorias ocorreu.
 
 ## Colunas obrigatórias do Resultado.xlsx
 
-Data ERP Usada, Tipo Data ERP, Data de Compensação Original, Vencimento Original, Data Banco, Valor ERP, Valor Banco, Favorecido, Descrição ERP, Descrição Banco, Status, Tipo Conciliação, Observações, Motivo Revisão, Motivo Não Conciliado, Diferença de Dias, ID Lote, Possível Data Banco, Possível Valor Banco, Possível Descrição Banco, Status do Possível Banco, Origem (`ERP`, `Banco` ou `ERP+Banco` — ver abaixo). As 5 colunas novas (`Motivo Não Conciliado`, as 3 `Possível .../Status do Possível Banco`) foram adicionadas em 2026-07-10-b junto com a remoção das abas de diagnóstico.
+`conciliar()` continua produzindo, sem nenhuma mudança de lógica, as 22 colunas de sempre (`COLUNAS_RESULTADO` em `src/conciliador.py`) + as 5 da IA quando ativa. Desde 2026-07-23, essas colunas vivem na aba **"Base Detalhada"** (ver abaixo), não mais numa aba única "Resultado". Desde 2026-07-24 (pedido explícito do usuário), a aba "Base Detalhada" **oculta** 13 delas — Data de Compensação Original, Motivo Revisão, Diferença de Dias, ID Lote, Possível Data Banco, Possível Valor Banco, Possível Descrição Banco, Status do Possível Banco, e as 5 colunas de IA (Decisão IA, Confiança IA, Motivo IA, Validação IA, Modelo IA) — via `COLUNAS_OCULTAS_BASE_DETALHADA` em `src/exportador.py`. Ficam visíveis: Data ERP Usada, Tipo Data ERP, Vencimento Original, Data Banco, Valor ERP, Valor Banco, Favorecido, Descrição ERP, Descrição Banco, Status, Tipo Conciliação, Observações, Motivo Não Conciliado (2026-07-10-b), Origem (`ERP`, `Banco` ou `ERP+Banco`). Nada é perdido de fato: o DataFrame interno continua com todas as colunas, e "Motivo Revisão"/"Motivo Não Conciliado" continuam resumidos na coluna "Motivo" da tabela "Itens pendentes de análise" (aba "Resumo").
 
-## Aba única (2026-07-10-b)
+## Abas do Resultado.xlsx e painel executivo (revisado em 2026-07-23)
 
-Antes eram 4 abas (Resultado, Diagnóstico Revisão Manual, Diagnóstico Lotes NET EMP, Diagnóstico Não Encontrados). Agora só existe **"Resultado"** — toda informação de diagnóstico virou coluna da própria linha (ver acima). O detalhe financeiro completo de cada grupo de lote NET EMP (totais, diferença, resultado de cada etapa) que antes só existia na aba "Diagnóstico Lotes NET EMP" agora só está no log do dia (`logs/`) — decisão deliberada para não perder a informação, mas sem duplicar toda a granularidade em coluna.
+Histórico: eram 4 abas → 2026-07-10-b unificou tudo numa aba única "Resultado" (toda informação de diagnóstico virou coluna da própria linha) → 2026-07-23 dividiu essa aba única em **duas**, "Resumo" e "Base Detalhada", reproduzindo o layout do arquivo-modelo `resultado/Modelo_principal_conciliacao_status.xlsx` (analisado e usado só como referência visual — nunca lido em tempo de execução nem sobrescrito):
+
+- **"Resumo"**: título, subtítulo com o período conciliado, painel executivo de **5 cards** (Total na Gestão, Total no Banco, Conciliado em verde, Revisão Manual em amarelo, Somente no Banco em vermelho — valores/quantidades/percentuais sempre calculados em Python a partir do `Resultado` desta execução, nunca fixos) e a tabela "Itens pendentes de análise" (só `Status != "Conciliado"`, nunca renomeia o Status original, com destaque amarelo/vermelho).
+- **"Base Detalhada"**: título, cabeçalho com os nomes originais das colunas e todas as linhas do `Resultado`, seguidas do rodapé (critério de lote consolidado + data/hora de geração).
+
+Os 5 cards não são células — são formas do Excel (retângulo de cantos arredondados + ícone de um banco de ícones do Office), que o openpyxl não sabe criar nativamente. Por isso `src/exportador_shapes.py` extrai (uma única vez) o XML das formas/ícones do arquivo-modelo para `src/assets/painel_visual/` e, depois que `src/exportador.py` salva a planilha normalmente, injeta esse XML no `.xlsx` já salvo, substituindo só os 5 textos de valor (nunca a posição/cor/ícone). O detalhe financeiro completo de cada grupo de lote NET EMP (totais, diferença, resultado de cada etapa) continua só no log do dia (`logs/`), como antes.
+
+Os totais de "Total na Gestão"/"Total no Banco" filtram por "Origem" (`ERP`/`ERP+Banco` vs. `Banco`/`ERP+Banco`) antes de somar — dentro de um lote NET EMP, a linha do ERP também carrega o total do banco do grupo (só contexto visual) e vice-versa, e somar a coluna inteira sem esse filtro contaria o total do lote em dobro (bug real encontrado e corrigido pelos testes durante esta mudança).
 
 ## Camada de IA (2ª etapa decisiva de conciliação)
 
@@ -177,7 +184,7 @@ Rodando só depois de TODAS as fases determinísticas acima, dentro de `concilia
 - `IA_MODO=SOMBRA`: roda a mesma análise/validação de `AUTOMATICO`, mas nunca aplica — só preenche as 6 colunas de auditoria (`COLUNAS_IA`, somada a `COLUNAS_RESULTADO` só nesses 2 modos).
 - `IA_MODO=AUTOMATICO`: uma decisão `CONCILIAR` aprovada em todas as revalidações concilia de verdade (`Status="Conciliado"`, `Tipo Conciliação="IA validada pelo Python"`), sem revisão humana.
 
-Elegibilidade (todos simultâneos): `Status=="Revisão Manual"`, `Origem=="ERP"`, `Data ERP Usada` preenchida, `Motivo Revisão` numa lista branca de 7 motivos (`MOTIVOS_ELEGIVEIS_IA` em `src/ia_revisor.py`), e não pertence a nenhum tipo de lote NET EMP. Candidatos bancários: no máximo `IA_MAXIMO_CANDIDATOS` (default 5), valor absoluto exato + até `IA_JANELA_BUSCA_DIAS` (default 5 dias) de diferença de data, nunca de lote reservado nem já consumidos. Resposta da IA sempre estruturada via Structured Outputs (JSON Schema `strict=true`, `{decisao, candidato, confianca, motivo}`). Revalidação do Python antes de aplicar: candidato na lista oferecida, valor exato, banco disponível, banco/ERP não são de lote, confiança ≥ limite do modo ativo (`SOMBRA`=0,70 / `AUTOMATICO`=0,95), e só em `AUTOMATICO` diferença de data ≤ `IA_JANELA_AUTOMATICA_DIAS` (default 1 dia — 2 a 5 dias nunca concilia sozinho automaticamente na v1). Se 2+ ERPs escolherem o mesmo banco, nenhuma das decisões conflitantes é aplicada. Nenhuma exceção da camada de IA derruba `python main.py` — falhas viram `Decisão IA="Erro na consulta à IA"` numa linha específica.
+Elegibilidade (todos simultâneos): `Status=="Revisão Manual"`, `Origem=="ERP"`, `Data ERP Usada` preenchida, `Motivo Revisão` na lista branca (`MOTIVOS_ELEGIVEIS_IA`), e não pertence a lote NET EMP. Candidatos bancários: no máximo `IA_MAXIMO_CANDIDATOS` (default 5), valor absoluto exato e **mesma data**. `IA_JANELA_BUSCA_DIAS` e `IA_JANELA_AUTOMATICA_DIAS` aceitam somente `0`. A resposta é estruturada e o Python revalida a mesma data antes de aplicar qualquer decisão, inclusive quando uma configuração for construída manualmente.
 
 Índice de origem (`_erp_index`/`_banco_index`, internos, nunca exportados) obtido via `linha.name` (verificado: todo call site de `_linha_resultado_erp`/`_linha_resultado_banco` já usa `df_erp.loc[i]`/`df_banco.loc[j]`) — zero call sites alterados para viabilizar a IA, só o corpo dessas duas funções.
 
@@ -189,7 +196,7 @@ Antes, cada par 1‑para‑1 conciliado (correspondência exata, tolerância, du
 
 ## Testes criados
 
-Pasta `tests/` (pytest), 103 testes (61 das regras determinísticas + 42 da camada de IA) distribuídos em 16 arquivos:
+Pasta `tests/` (pytest), 129 testes (61 das regras determinísticas + 42 da camada de IA + 26 da camada de apresentação) distribuídos em 17 arquivos:
 
 - `test_linha_name_preserva_indice.py`, `test_ia_config.py`, `test_ia_cliente_groq.py`, `test_ia_revisor_candidatos.py`, `test_regra12_ia_decisiva.py` — camada de IA (ver seção "Camada de IA" acima e `docs/HISTORICO_DECISOES.md`).
 
@@ -200,12 +207,13 @@ Arquivos das regras determinísticas (um por regra do CLAUDE.md):
 - `test_regra3_conciliacao_individual.py` — par único, desempate por nome, Revisão Manual sem sinal.
 - `test_regra4_tarifas_repetidas.py` — duplicidade idêntica individual.
 - `test_regra5_pix_individual.py` — PIX/TED/DOC nunca viram lote.
-- `test_regra6_lote_net_emp.py` — reserva de lote, total direto, Revisão Manual quando ERP não alcança o banco, "lote claro" (NET EMPRESA genérico não vira lote), proteção reativa do ERP contra coincidências, e (2026-07-10) tolerância de data separada (lote sem tolerância/divergência de data, individual 1 dia com nome forte) e trava de remuneração em par único (sem nome/sem lote ativo → Revisão Manual; sem nome/com lote ativo → adiado; com nome → concilia).
+- `test_regra6_lote_net_emp.py` — reserva de lote, total direto, proteção reativa do ERP, data exata obrigatória para lotes e pagamentos individuais, motivo explícito para datas divergentes e trava de remuneração em par único.
 - `test_regra7_status_permitidos.py` — só os 4 status aparecem.
 - `test_regra8_combinacao_lote.py` (substituiu `test_regra8_apoio_lote_manual.py` em 2026-07-09, quando a seleção manual foi removida) — busca de combinação única (`_buscar_combinacao_unica_centavos`), detecção de identificador individual (`_banco_tem_identificador_individual`), combinação única fechando o lote automaticamente, múltiplas combinações mantendo Revisão Manual, banco genérico sem combinação, e a Etapa C (nome/descrição) resolvendo e não resolvendo.
 - `test_regra9_recuperacao_nao_encontrado.py` (2026-07-10, atualizado em 2026-07-10-b para aba única) — verificação final de "Não encontrado no banco": par único com nome forte concilia (casos reais Mauro Vagner/Heros Rampazzo, mesclados numa única linha `Origem="ERP+Banco"`), múltiplos bancos possíveis mantém Revisão Manual, banco já consumido por outro lançamento (lote) nunca é trocado — só registrado nas colunas "Possível .../Status do Possível Banco" da própria linha —, e um ERP sem candidato nenhum tem "Motivo Não Conciliado" preenchido, nunca em branco.
-- `test_regra10_desempate_grupo.py` (novo, 2026-07-10-c) — pareamento por nome em grupos de mesmo valor/data (e dentro da tolerância de 1 dia): valor/data único conciliando direto; grupo de 4 ("Distribuição de Lucros") conciliando corretamente tanto por data exata quanto pela fase de tolerância (regressão do bug real relatado — combinações cruzadas do tipo "Ricardo Mouro x Raphael Pekly"); grupo parcialmente resolvido (3 seguros + 1 ambíguo); empate de nome entre múltiplos candidatos; "primeiro nome apenas" não conciliando com risco real de ambiguidade; ausência de duplicidade de par no Resultado; Resultado.xlsx com 1 aba só.
-- `test_regra11_valor_data_unicos.py` (novo, 2026-07-10-d) — "FGTS" nunca é lote (`_classificar_tipo_lote`); caso real FGTS - Rescisão Daniel Lemos conciliando por "Valor e data" sem nenhum nome em comum; ERP único + banco único com descrição totalmente diferente; ERP com 2 bancos do mesmo valor/data (Revisão Manual); 2 ERP com 1 banco do mesmo valor/data (Revisão Manual); Resultado sem pares duplicados; Resultado.xlsx com 1 aba; e 3 testes unitários diretos de `_verificar_possiveis_pares_nao_encontrados` (concilia sem nome quando único, não concilia com múltiplos candidatos, não concilia quando banco já consumido).
+- `test_regra10_desempate_grupo.py` — pareamento por nome apenas em grupos de mesmo valor e mesma data; também comprova que grupos com um dia de diferença não conciliam, mesmo com nomes fortes.
+- `test_regra11_valor_data_unicos.py` (novo, 2026-07-10-d) — "FGTS" nunca é lote (`_classificar_tipo_lote`); caso real FGTS - Rescisão Daniel Lemos conciliando por "Valor e data" sem nenhum nome em comum; ERP único + banco único com descrição totalmente diferente; ERP com 2 bancos do mesmo valor/data (Revisão Manual); 2 ERP com 1 banco do mesmo valor/data (Revisão Manual); Resultado sem pares duplicados; Resultado.xlsx com as abas "Resumo"/"Base Detalhada" (atualizado em 2026-07-23); e 3 testes unitários diretos de `_verificar_possiveis_pares_nao_encontrados` (concilia sem nome quando único, não concilia com múltiplos candidatos, não concilia quando banco já consumido).
+- `test_exportador_layout.py` (novo, 2026-07-23) — camada de apresentação (`src/exportador.py`/`src/exportador_shapes.py`): as 2 abas "Resumo"/"Base Detalhada"; as 5 formas de card presentes no XML de `drawing1.xml` (Card_Gestao/Card_Banco/Card_Conciliado/Card_Revisao/Card_SomenteBanco) com os títulos e valores calculados (nunca placeholder sobrando, nunca valor fixo — 2 execuções com totais diferentes produzem textos diferentes); os 8 arquivos de ícone (PNG+SVG) do arquivo-modelo embutidos; métricas financeiras não duplicam o total do lote NET EMP; métricas de status incluem "somente_banco" e somam 100%; tabela de pendências com as 7 colunas, motivo nunca vazio, cores amarelo/vermelho por Status (sem renomear o texto original); "Base Detalhada" preserva todas as colunas/linhas/valores/Status originais, com filtro e congelamento corretos (`A3`); nenhuma célula mostra "nan"/"None"/"NaT"; exportação funciona com as 5 colunas extras da IA.
 
 `tests/conftest.py` fornece os builders (`construir_df_erp`/`construir_df_banco`) e um logger silencioso. Ver `tests/README_TESTES.md` para instruções.
 
@@ -213,30 +221,30 @@ Arquivos das regras determinísticas (um por regra do CLAUDE.md):
 
 - Prioridade Data de compensação > Vencimento, linha a linha.
 - Filtro de débitos e de período do banco.
-- Conciliação individual (par único, tolerância de datas, desempate por nome).
+- Conciliação individual por valor e mesma data (par único e desempate por nome).
 - Duplicidade idêntica individual (tarifas repetidas), validada com dados reais (ex.: 8 tarifas do mesmo valor/data no mesmo dia).
 - Lote NET EMP por total direto, incluindo o caso de **múltiplos lotes do mesmo tipo no mesmo dia** resolvidos sem reaproveitar item do ERP entre eles (validado com dados reais).
 - Lote claro (marcador + tipo específico) e a reserva simétrica do ERP: um "PAG COBRANCA NET EMPRESA"/"PAGTO ELETRON COBRANCA PAG COBRANCA NET EMPRESA" real que antes virava um "lote genérico" com diferença de R$ 44.000,00 (misturando DHL, Safetyfyi, ASCORP e Consultoria Claudio, sem relação nenhuma entre si) concilia cada um individualmente por valor e data, e "Consultoria Claudio" aparece corretamente como "Não encontrado no banco".
 - Busca automática de combinação exata única (2026-07-09), validada com testes sintéticos: fecha sozinha quando existe 1 combinação, nunca adivinha quando existem 2+.
-- Conciliação individual antes do lote NET EMP (2026-07-10): o ERP de Salário/Folha/Férias/Rescisão/13º agora tenta a via individual (valor+data, nome/descrição, tolerância) antes de entrar no pool do lote — só fica retido para o lote se ficar ambíguo sem sinal seguro. Validado end-to-end com `python main.py` nos dados reais: o grupo de Salário/Folha de 06/05/2026, que antes tinha 29 candidatos do ERP (R$ 54.569,83) contra 12 do banco (R$ 34.760,52) e ficava em Revisão Manual por "múltiplas combinações possíveis", agora identifica 9 desses candidatos como pagos individualmente fora do lote (PIX nomeado, cada um com o nome do funcionário na descrição do banco) — restam exatamente 20 candidatos cuja soma (R$ 34.760,52) bate exatamente com o banco, fechando por total direto. Revisão Manual do arquivo inteiro caiu de 41 para 0 linhas nessa execução.
+- Conciliação individual antes do lote NET EMP: o ERP de Salário/Folha/Férias/Rescisão/13º tenta primeiro a via individual por valor e mesma data; só fica retido para o lote quando não há par individual seguro.
 - Etapa C (nome/descrição dentro do lote), para quando o banco excepcionalmente traz identificador individual — validada com testes sintéticos; nos dados reais atuais, todo o NET EMP é genérico (sem nome), então essa etapa nunca é acionada na prática hoje.
 - **Não existe mais nenhuma forma de marcação manual** (a aba "Apoio Lote NET EMP" e a seleção SIM/NÃO foram removidas em 2026-07-09) — a conciliação do lote é 100% automática.
 - Leitura de OFX com fallback de encoding e correção de cabeçalho com linha em branco.
 - Filtro de período detectado automaticamente a partir do texto "Período: ..." do relatório.
-- Aba única "Resultado" (2026-07-10-b — antes eram 4 abas), com todo o diagnóstico embutido em colunas.
+- Abas "Resumo" e "Base Detalhada" (2026-07-23 — antes era uma aba única "Resultado" desde 2026-07-10-b, e antes disso 4 abas), com todo o diagnóstico embutido em colunas na "Base Detalhada" e o painel executivo de 5 cards (formas do Excel extraídas do arquivo-modelo) na "Resumo".
 - Uma linha por par ERP × Banco conciliado, sem espelhamento (2026-07-10-b), validada em produção: 828 pares mesclados (`Origem="ERP+Banco"`) no arquivo real de 921 lançamentos do ERP × 870 do banco, 0 conflitos de índice detectados pela verificação defensiva.
 - Suíte de testes automatizados cobrindo as 10 regras principais (61 testes, 11 arquivos).
 - Verificação final de "Não encontrado no banco" concilia por valor+data único mesmo sem nome, e "FGTS" nunca é tratado como lote NET EMP (2026-07-10-d) — corrigido caso real (FGTS - Rescisão Daniel Lemos, batendo com um depósito à Caixa sem nenhum nome em comum); validado end-to-end com `python main.py`: Revisão Manual caiu de 19 para 15 linhas.
-- Pareamento por nome em grupos de mesmo valor/data também na fase de tolerância de 1 dia (2026-07-10-c) — corrigido bug real de combinações cruzadas ("Distribuição de Lucros" para 4 pessoas indo tudo para Revisão Manual com pares errados); validado end-to-end com `python main.py`: Revisão Manual do arquivo real caiu de 29 para 19 linhas, todas por motivos genuínos.
-- Tolerância de data separada e trava de remuneração em par único (2026-07-10), validadas end-to-end com `python main.py` nos dados reais.
+- Historicamente existiu pareamento por nome com tolerância de 1 dia; essa possibilidade foi desativada pela regra global de data exata de 2026-07-23.
+- Data exata global e trava de remuneração em par único estão cobertas pela suíte automatizada.
 - Vencimento nunca mais usado para conciliar e verificação final de "Não encontrado no banco" (2026-07-10), validadas com `python main.py` num arquivo real de 921 lançamentos do ERP (jan-mai/2026): 0 linhas dependiam de vencimento (todo o arquivo tinha "Data de confirmação" preenchida); a verificação final avaliou 9 candidatos a "Não encontrado no banco" e não recuperou nenhum — todos genuinamente não tinham nenhum lançamento bancário com valor, data ou nome compatível (agora documentado em "Motivo Não Conciliado" na própria linha, em vez de ficar sem explicação). Total de linhas do Resultado (após a mesclagem de pares em 2026-07-10-b, o pareamento por nome na tolerância em 2026-07-10-c, e a conciliação por valor+data único sem nome em 2026-07-10-d): 956 — Conciliado: 931; Revisão Manual: 15 (8 duplicidade sem nome, 4 tolerância sem evidência, 3 remuneração sem nome antes do lote, 0 empate de nome); Não encontrado no banco: 10; Somente banco: 0.
 
 ## Pontos que ainda precisam de atenção
 
 - **Duplicidade equivalente individual** (NF diferente, mesmo fornecedor): já apareceu em execução real (4 ocorrências no arquivo de jan-mai/2026 processado em 2026-07-10) — regra confirmada em produção, não é mais só teoria sintética.
-- Não há teste automatizado cobrindo `leitor_banco.py` lendo um arquivo Excel real do GestãoClick como banco (só o núcleo de conciliação, a leitura de OFX sintético e agora `ler_erp()` com Excel sintético estão cobertos) — mudanças na detecção de cabeçalho/colunas do Excel do banco não têm rede de segurança automática ainda.
+- A leitura bancária em Excel está coberta por `tests/test_leitor_banco_excel.py`: cabeçalho deslocado, nomes alternativos, valores brasileiros, filtro de período e erro de colunas obrigatórias.
 - A busca de combinação (`_buscar_combinacao_unica_centavos`, meet-in-the-middle) é segura e rápida até 40 candidatos por grupo; acima disso, o grupo é tratado como "grupo grande demais para busca automática" em vez de arriscar uma busca incompleta ou lenta — ainda não apareceu um caso real com mais de 40 candidatos num único grupo.
-- `requirements.txt` já teve problema de encoding (UTF-16 por engano) corrigido numa rodada de documentação anterior — vale conferir se ao reabrir no Excel/editor ele não volta a ser salvo errado.
+- `requirements.txt` está em texto simples e fixa as versões diretas validadas no ambiente virtual.
 
 ## O que o Claude nunca deve fazer em futuras alterações
 
@@ -250,13 +258,13 @@ Arquivos das regras determinísticas (um por regra do CLAUDE.md):
 - Nunca reintroduzir marcação manual (aba de apoio, coluna SIM/NÃO) para a conciliação do lote NET EMP sem o usuário pedir explicitamente — essa lógica foi removida por decisão explícita em 2026-07-09.
 - Nunca bloquear o ERP de remuneração/férias/rescisão/13º da conciliação individual de forma preventiva (antes de tentar) sem pedido explícito do usuário — desde 2026-07-10 a proteção é reativa (só retém depois de tentar sem sucesso); voltar ao bloqueio cego reintroduziria o problema que essa mudança resolveu (candidatos pagos fora do lote inflando o pool e causando "múltiplas combinações" à toa).
 - Nunca deixar um par único (1 ERP x 1 Banco) de remuneração/salário/férias/rescisão/13º conciliar automaticamente só por valor+data sem nome/descrição forte — regra explícita de 2026-07-10, existe justamente para não "roubar" candidatos legítimos do lote por coincidência.
-- Nunca dar tolerância de data ao lote NET EMP (deve ser sempre data exata) nem voltar a tolerância de 3 dias para pagamentos individuais sem pedido explícito do usuário — reduzida para 1 dia (e com exigência de nome/descrição forte) em 2026-07-10.
+- Nunca permitir diferença de data em qualquer conciliação. A tolerância global é zero desde 2026-07-23.
 - Nunca voltar a usar Vencimento como fallback de Data ERP Usada sem pedido explícito do usuário — removido em 2026-07-10; uma linha só-com-vencimento deve continuar preservada (não descartada) e marcada Revisão Manual com motivo específico.
 - Nunca trocar automaticamente a conciliação de um lançamento do banco já usado para "resgatar" um ERP marcado como "Não encontrado no banco" — a verificação final (2026-07-10) só concilia candidatos ainda pendentes; um banco já consumido vira só um registro de diagnóstico (`Possível par bancário já consumido por outro lançamento`), nunca uma troca automática.
 - Nunca ajustar um teste em `tests/` só para fazê-lo passar sem entender por que ele quebrou — investigar a causa raiz e corrigir a regra geral primeiro.
 - Nunca alterar `src/` sem rodar `pytest` depois para confirmar que nada regrediu.
 - Nunca deixar a camada de IA analisar ou aplicar decisão sobre um lançamento que não esteja `Status=="Revisão Manual"` — ela nunca reabre, desfaz ou substitui uma conciliação (ou "Não encontrado"/"Somente banco") já decidida pelas regras determinísticas.
-- Nunca ampliar a lista branca de motivos elegíveis (`MOTIVOS_ELEGIVEIS_IA`) ou reduzir a confiança mínima/janela de aplicação automática sem pedido explícito do usuário — os limites atuais (`SOMBRA`=0,70/5 dias, `AUTOMATICO`=0,95/1 dia) foram calibrados a pedido dele especificamente para serem conservadores na primeira versão.
+- Nunca ampliar a lista branca da IA, reduzir a confiança mínima ou permitir janela de data maior que zero sem pedido explícito do usuário.
 - Nunca colocar constante de IA (modo, chave, modelo, janelas, confiança) em `src/utils.py` ou fixa no código — tudo vem de variável de ambiente via `src/ia_config.py`, decisão explícita do usuário.
 - Nunca logar o valor de `GROQ_API_KEY` em nenhuma linha, em nenhum nível de log.
-- Nunca aplicar uma decisão `CONCILIAR` da IA em `IA_MODO=AUTOMATICO` sem passar por todas as revalidações do Python (candidato oferecido, valor exato, banco disponível, não é lote, confiança do modo, janela de 1 dia, ausência de conflito) — e nunca aplicar quando 2+ lançamentos disputam o mesmo banco, mesmo que um tenha confiança maior que o outro.
+- Nunca aplicar uma decisão `CONCILIAR` da IA sem revalidar candidato, valor, disponibilidade, lote, confiança, **mesma data** e ausência de conflito.

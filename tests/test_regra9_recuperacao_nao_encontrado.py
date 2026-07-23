@@ -2,7 +2,7 @@
 finalizar um lançamento do ERP como "Não encontrado no banco", o sistema
 verifica se existe um possível par no banco (usado ou não) por valor
 absoluto + data + nome/descrição — só sobre o que sobrou depois de todas as
-fases principais (individual, tolerância, lote), para nunca interferir nelas.
+fases principais (individual por data exata e lote), para nunca interferir nelas.
 
 Nunca força conciliação quando há risco: só concilia quando o candidato é
 único dos dois lados, tem nome/descrição forte compatível e ainda está

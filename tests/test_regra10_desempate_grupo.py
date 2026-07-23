@@ -1,15 +1,8 @@
-"""Regra revisada em 2026-07-10-c (ver docs/HISTORICO_DECISOES.md): grupos com
-mesmo valor absoluto e mesma data (ou dentro da tolerância de 1 dia) devem
-tentar pareamento por nome/descrição antes de mandar tudo para Revisão Manual.
+"""Grupos com mesmo valor absoluto e mesma data tentam pareamento por
+nome/descrição antes de mandar tudo para Revisão Manual.
 
-O bug real relatado pelo usuário (ex.: "Distribuição de Lucros" gerando
-combinações cruzadas como "Ricardo Mouro x Raphael Pekly") acontecia na fase
-de TOLERÂNCIA (`_resolver_correspondencias_por_tolerancia`), que usava
-ingenuamente `candidatos[0]` (o primeiro candidato da lista) em vez do
-algoritmo de pareamento mutuamente único já existente para grupos de mesma
-data exata. Corrigido reaproveitando `_desempatar_por_nome` (agora com suporte
-a `pares_permitidos`, restringindo a comparação aos pares dentro da janela de
-tolerância) também na fase de tolerância.
+Também protege a regra global de 2026-07-23: datas diferentes nunca conciliam,
+mesmo quando os nomes são fortes e permitiriam identificar cada favorecido.
 
 Também foi ampliada a pontuação de nome (`_termos_correspondentes`) para
 aceitar truncamento (ex.: "SILV" compatível com "SILVA", "ALM" compatível com
@@ -28,7 +21,7 @@ from src.conciliador import (
     TIPO_VALOR_E_DATA,
     conciliar,
 )
-from src.exportador import NOME_ABA_RESULTADO, exportar_resultado
+from src.exportador import NOME_ABA_BASE_DETALHADA, NOME_ABA_RESUMO, exportar_resultado
 from tests.conftest import construir_df_banco, construir_df_erp
 
 DISTRIBUICAO_LUCROS_ERP = [
@@ -89,12 +82,8 @@ def test_distribuicao_de_lucros_mesma_data_concilia_por_nome(logger_silencioso):
         assert trecho_banco.upper() in linha.iloc[0]["Descrição Banco"].upper()
 
 
-def test_distribuicao_de_lucros_com_um_dia_de_diferenca_concilia_por_tolerancia(logger_silencioso):
-    """Caso real que gerava combinações cruzadas: ERP datado 1 dia depois do
-    banco (fase de tolerância, não de data exata) — antes da correção, a
-    tolerância usava "candidatos[0]" ingênuo e produzia pares errados
-    ("Ricardo Mouro x Raphael Pekly" etc.); agora usa o mesmo pareamento por
-    nome mutuamente único."""
+def test_distribuicao_de_lucros_com_um_dia_de_diferenca_nao_concilia(logger_silencioso):
+    """Nem nomes fortes autorizam conciliação quando as datas são diferentes."""
     df_erp = construir_df_erp([
         {"data_usada": date(2026, 1, 29), **item} for item in DISTRIBUICAO_LUCROS_ERP
     ])
@@ -104,14 +93,11 @@ def test_distribuicao_de_lucros_com_um_dia_de_diferenca_concilia_por_tolerancia(
 
     resultado = conciliar(df_erp, df_banco, logger_silencioso)
 
-    assert len(resultado) == 4
-    assert (resultado["Status"] == STATUS_CONCILIADO).all()
-    assert (resultado["Tipo Conciliação"] == TIPO_VALOR_DATA_TOLERANCIA).all()
-    assert (resultado["Diferença de Dias"] == 1).all()
-
-    ricardo = resultado[resultado["Descrição ERP"] == "DISTRIBUICAO DE LUCROS RICARDO MOURO"]
-    assert "MOURO" in ricardo.iloc[0]["Descrição Banco"].upper()
-    assert "PEKLY" not in ricardo.iloc[0]["Descrição Banco"].upper()
+    assert len(resultado) == 8
+    assert STATUS_CONCILIADO not in resultado["Status"].values
+    linhas_erp = resultado[resultado["Origem"] == "ERP"]
+    assert (linhas_erp["Status"] == STATUS_REVISAO_MANUAL).all()
+    assert linhas_erp["Motivo Revisão"].str.contains("mesma data", case=False, na=False).all()
 
 
 def test_grupo_parcialmente_resolvido_concilia_seguros_e_deixa_resto_em_revisao(logger_silencioso):
@@ -145,12 +131,8 @@ def test_grupo_parcialmente_resolvido_concilia_seguros_e_deixa_resto_em_revisao(
 
 
 def test_empate_de_nome_entre_multiplos_candidatos_mantem_revisao_manual(logger_silencioso):
-    """Teste 5 do pedido: um ERP com dois bancos de pontuação igual (mesmo
-    primeiro nome, nenhum sobrenome batendo) nunca escolhe um sozinho. Datado
-    1 dia de diferença para exercitar a fase de tolerância (onde estava o bug
-    real do "candidatos[0]" ingênuo) — o motivo específico de empate
-    (`MOTIVO_EMPATE_NOME`) só existe nessa fase; a fase de data exata usa o
-    motivo genérico já existente (`Duplicidade de valor e data...`)."""
+    """Um ERP e dois bancos em outra data nunca conciliam; além da data
+    diferente, os nomes são ambíguos e nenhum candidato pode ser escolhido."""
     df_erp = construir_df_erp([
         {"data_usada": date(2026, 4, 3), "valor": 500.00, "favorecido": "CARLOS MENDES"},
     ])
@@ -161,9 +143,10 @@ def test_empate_de_nome_entre_multiplos_candidatos_mantem_revisao_manual(logger_
 
     resultado = conciliar(df_erp, df_banco, logger_silencioso)
 
-    assert (resultado["Status"] == STATUS_REVISAO_MANUAL).all()
     erp_linha = resultado[resultado["Origem"] == "ERP"]
-    assert (erp_linha["Motivo Revisão"] == MOTIVO_EMPATE_NOME).all()
+    assert STATUS_CONCILIADO not in resultado["Status"].values
+    assert len(erp_linha) == 1
+    assert erp_linha["Motivo Revisão"].str.contains("mesma data", case=False, na=False).all()
 
 
 def test_primeiro_nome_apenas_nao_concilia_automaticamente_com_risco_de_ambiguidade(logger_silencioso):
@@ -214,4 +197,4 @@ def test_resultado_xlsx_tem_apenas_uma_aba(tmp_path, logger_silencioso):
     exportar_resultado(resultado, caminho, logger_silencioso)
 
     workbook = openpyxl.load_workbook(caminho, read_only=True)
-    assert workbook.sheetnames == [NOME_ABA_RESULTADO] == ["Resultado"]
+    assert workbook.sheetnames == [NOME_ABA_RESUMO, NOME_ABA_BASE_DETALHADA] == ["Resumo", "Base Detalhada"]

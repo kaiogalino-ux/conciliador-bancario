@@ -83,8 +83,8 @@ def test_defaults_aplicados_quando_variaveis_opcionais_ausentes(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "sk-teste")
     monkeypatch.setenv("GROQ_MODEL", "openai/gpt-oss-120b")
     config = carregar_configuracao_ia()
-    assert config.janela_busca_dias == 5
-    assert config.janela_automatica_dias == 1
+    assert config.janela_busca_dias == 0
+    assert config.janela_automatica_dias == 0
     assert config.maximo_candidatos == 5
     assert config.confianca_minima_sombra == 0.70
     assert config.confianca_minima_automatico == 0.95
@@ -94,16 +94,16 @@ def test_variaveis_opcionais_customizadas_sao_lidas(monkeypatch):
     monkeypatch.setenv("IA_MODO", "AUTOMATICO")
     monkeypatch.setenv("GROQ_API_KEY", "sk-teste")
     monkeypatch.setenv("GROQ_MODEL", "outro-modelo-groq-qualquer")
-    monkeypatch.setenv("IA_JANELA_BUSCA_DIAS", "10")
-    monkeypatch.setenv("IA_JANELA_AUTOMATICA_DIAS", "2")
+    monkeypatch.setenv("IA_JANELA_BUSCA_DIAS", "0")
+    monkeypatch.setenv("IA_JANELA_AUTOMATICA_DIAS", "0")
     monkeypatch.setenv("IA_MAXIMO_CANDIDATOS", "3")
     monkeypatch.setenv("IA_CONFIANCA_MINIMA_SOMBRA", "0.6")
     monkeypatch.setenv("IA_CONFIANCA_MINIMA_AUTOMATICO", "0.99")
 
     config = carregar_configuracao_ia()
 
-    assert config.janela_busca_dias == 10
-    assert config.janela_automatica_dias == 2
+    assert config.janela_busca_dias == 0
+    assert config.janela_automatica_dias == 0
     assert config.maximo_candidatos == 3
     assert config.confianca_minima_sombra == 0.6
     assert config.confianca_minima_automatico == 0.99

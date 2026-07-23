@@ -30,11 +30,9 @@ identificar um a um):
    Férias, Rescisão, 13º) só concilia direto quando há nome/descrição forte
    compatível — valor+data sozinhos nunca "roubam" um candidato do lote por
    coincidência (Mudança 2026-07-10, ver docs/HISTORICO_DECISOES.md).
-2. Tolerância: só para pagamentos individuais (nunca lote NET EMP — ver fase
-   3), até `TOLERANCIA_DIAS_INDIVIDUAL` dia(s) entre a Data ERP Usada e a Data
-   do banco, dentro do mesmo valor absoluto, e só quando há nome/favorecido/
-   descrição forte compatível — um candidato único só por proximidade de data
-   vira Revisão Manual, não Conciliado (Mudança 2026-07-10).
+2. Correspondências remanescentes na mesma data: a estrutura da antiga fase
+   de tolerância é preservada, mas `TOLERANCIA_DIAS_INDIVIDUAL` vale zero.
+   Portanto, nenhuma proximidade de datas é aceita.
 3. Lote NET EMPR: só para o que continuar sem par depois das fases 1 e 2 —
    classifica lançamentos do banco tipo "NET EMP/EMPR" (Salário/Folha, Férias,
    Rescisão ou 13º) ainda não conciliados e tenta fechar cada grupo (Data,
@@ -81,7 +79,7 @@ STATUS_SOMENTE_BANCO = "Somente banco"
 TIPO_VALOR_E_DATA = "Valor e data"
 TIPO_VALOR_DATA_DESCRICAO = "Valor, data e descrição"
 TIPO_VALOR_DATA_NOME = "Valor, data e nome"
-TIPO_VALOR_DATA_TOLERANCIA = "Valor, data (tolerância 1 dia) e nome"
+TIPO_VALOR_DATA_TOLERANCIA = "Valor, mesma data e nome"
 TIPO_DUPLICIDADE_IDENTICA = "Duplicidade idêntica individual"
 TIPO_DUPLICIDADE_EQUIVALENTE = "Duplicidade equivalente individual"
 TIPO_CONCILIACAO_LOTE_CONSOLIDADO = "Lote NET EMP consolidado por data"
@@ -97,12 +95,10 @@ OBS_CONCILIADO_IA = (
     "Conciliado automaticamente pela camada de IA (IA_MODO=AUTOMATICO), validado pelo Python"
 )
 
-# Tolerância de data (revisada em 2026-07-10 — ver docs/HISTORICO_DECISOES.md):
-# lote NET EMP nunca usa tolerância (Data Banco deve ser exatamente igual à
-# Data ERP Usada — ver _e_candidato_lote_erp e _resolver_lote_net_empr).
-# Pagamentos individuais (não-lote) usam TOLERANCIA_DIAS_INDIVIDUAL, e só
-# conciliam automaticamente quando há nome/descrição forte compatível.
-TOLERANCIA_DIAS_INDIVIDUAL = 1
+# Regra atual: nenhum lançamento pode ser conciliado quando as datas diferem.
+# A fase de tolerância é mantida estruturalmente para diagnóstico, mas sua
+# janela é zero para pagamentos individuais e lotes.
+TOLERANCIA_DIAS_INDIVIDUAL = 0
 
 # Desempate por nome/descrição é opcional e pode ser desligado sem afetar a
 # conciliação principal (valor absoluto + data).
@@ -117,7 +113,7 @@ OBS_REMUNERACAO_SEM_NOME = (
     "Remuneração/salário com valor e data batendo, mas sem nome/descrição forte — "
     "não conciliado automaticamente antes do lote"
 )
-OBS_TOLERANCIA_SEM_EVIDENCIA = "Candidato único dentro da tolerância de 1 dia, mas sem nome/descrição forte para confirmar"
+OBS_TOLERANCIA_SEM_EVIDENCIA = "Candidato com data divergente; conciliação exige a mesma data"
 OBS_RECUPERADO_NAO_ENCONTRADO = 'Conciliado após verificação de possível "Não encontrado no banco"'
 # Regra 2026-07-10-d (ver docs/HISTORICO_DECISOES.md): na verificação final de
 # "Não encontrado no banco", um candidato único por valor+data dos dois lados
@@ -161,7 +157,9 @@ MOTIVO_SEM_DATA_PAGAMENTO = "ERP sem data de pagamento/compensação; vencimento
 MOTIVO_NAO_ENCONTRADO_SEM_EVIDENCIA = (
     "Existe lançamento bancário com mesmo valor e mesma data, mas sem evidência suficiente para conciliação automática"
 )
-MOTIVO_NAO_ENCONTRADO_DIVERGENCIA_DATA = "Possível par encontrado com divergência de data"
+MOTIVO_NAO_ENCONTRADO_DIVERGENCIA_DATA = (
+    "Possível par encontrado em data diferente; conciliação exige a mesma data"
+)
 MOTIVO_NAO_ENCONTRADO_BANCO_CONSUMIDO = "Possível par bancário já consumido por outro lançamento"
 MOTIVO_NAO_ENCONTRADO_MULTIPLOS = "Múltiplos bancos possíveis para ERP marcado como Não encontrado"
 MOTIVO_NAO_ENCONTRADO_SEM_CANDIDATO = "Nenhum lançamento bancário com valor/data ou nome compatível encontrado"
@@ -174,7 +172,7 @@ MOTIVO_SOMENTE_BANCO_SEM_ERP = "Nenhum lançamento do ERP corresponde a este lan
 # aparecer em mais de um par "Conciliado", nunca escolhe um sozinho.
 MOTIVO_PAR_CONFLITANTE = "Mesmo lançamento ERP/Banco foi associado a mais de um par possível"
 # Motivo novo (2026-07-10-c, ver docs/HISTORICO_DECISOES.md): dentro de um
-# grupo de mesmo valor/data(±tolerância), um candidato tem sinal de nome mas
+# grupo de mesmo valor e mesma data, um candidato tem sinal de nome mas
 # esse sinal empata com outro candidato (ou o termo comum não é único no
 # grupo) — nunca escolhe um dos dois sozinho.
 MOTIVO_EMPATE_NOME = "Empate de nome entre múltiplos candidatos"
@@ -482,7 +480,7 @@ def _nome_compativel(texto_a, texto_b) -> bool:
     termo relevante (nome próprio, número de documento etc.) em comum — exato
     ou truncado (regra 3, 2026-07-10-c). Usado para exigir esse sinal em par
     único (Mudança 2026-07-10): valor+data sozinhos não bastam para
-    remuneração/lote nem para tolerância de data individual."""
+    remuneração/lote nem para desempates remanescentes."""
     return bool(_termos_correspondentes(extrair_termos_relevantes(texto_a), extrair_termos_relevantes(texto_b)))
 
 
@@ -499,14 +497,11 @@ def _desempatar_por_nome(
     indices_erp: list, indices_banco: list, df_erp: pd.DataFrame, df_banco: pd.DataFrame,
     pares_permitidos: set[tuple] | None = None,
 ) -> dict:
-    """Tenta casar, dentro de um grupo ambíguo (mesmo valor absoluto e mesma
-    data, ou mesmo valor dentro da tolerância de data — regra 2026-07-10-c),
-    lançamentos ERP e Banco comparando os termos relevantes (nomes próprios,
-    números de documento etc.) que sobram depois de remover o genérico.
+    """Tenta casar, dentro de um grupo ambíguo de mesmo valor absoluto e mesma
+    data, lançamentos ERP e Banco comparando os termos relevantes.
 
-    `pares_permitidos`, quando informado, restringe a comparação só aos pares
-    (i, j) permitidos (usado pela fase de tolerância — só faz sentido comparar
-    nome entre um ERP e um Banco que já estão dentro da janela de dias).
+    `pares_permitidos`, quando informado, restringe a comparação aos pares
+    (i, j) permitidos pela fase chamadora.
 
     - 2 ou mais termos compatíveis (exatos ou truncados, regra 3) -> correspondência
       forte, considerada válida sempre.
@@ -940,10 +935,11 @@ def _resolver_correspondencias_exatas(
 
 
 def _mapear_compatibilidade_tolerancia(grupo_erp: pd.DataFrame, grupo_banco: pd.DataFrame) -> tuple[dict, dict]:
-    """Mapeia, dentro de um mesmo valor absoluto, quais linhas ERP/Banco estão a até
-    `TOLERANCIA_DIAS_INDIVIDUAL` dia(s) de distância (usado só para pagamentos
-    individuais que sobraram sem par exato — lote NET EMP nunca usa tolerância
-    de data, ver `_resolver_correspondencias_por_tolerancia` e `_resolver_lote_net_empr`)."""
+    """Mapeia remanescentes do mesmo valor e da mesma data.
+
+    O nome da função é legado; `TOLERANCIA_DIAS_INDIVIDUAL` vale zero e datas
+    diferentes nunca são consideradas compatíveis.
+    """
     compat_erp = {i: [] for i in grupo_erp.index}
     compat_banco = {j: [] for j in grupo_banco.index}
 
@@ -966,27 +962,19 @@ def _resolver_correspondencias_por_tolerancia(
     df_erp: pd.DataFrame, df_banco: pd.DataFrame, resolvidos_erp: set, resolvidos_banco: set,
     e_tipo_lote_erp=None,
 ) -> tuple[list, list, list]:
-    """Fase 2: para o que não teve par exato, tenta casar dentro da tolerância de
-    `TOLERANCIA_DIAS_INDIVIDUAL` dia(s) — só pagamentos individuais (Mudança
-    2026-07-10, ver docs/HISTORICO_DECISOES.md).
+    """Fase 2: reavalia remanescentes de pagamentos individuais com mesmo
+    valor e mesma data. O nome é legado da regra antiga; a janela atual é zero.
 
     Lote NET EMP (Salário/Folha, Férias, Rescisão, 13º) nunca usa tolerância de
     data: um lançamento ERP desse tipo (`e_tipo_lote_erp`) é sempre desviado
     para `indices_erp_sem_par`, sem tentar nenhum par por proximidade — fica
     pendente para a etapa de lote exigir Data Banco = Data ERP Usada exata.
 
-    Regra revisada em 2026-07-10-c (ver docs/HISTORICO_DECISOES.md): quando há
-    mais de um candidato ERP/Banco do mesmo valor dentro da janela de
-    tolerância (ex.: um grupo de "Distribuição de Lucros" para várias pessoas,
-    todas no mesmo valor e datas próximas), o desempate agora usa o mesmo
-    algoritmo de pareamento por nome mutuamente único do grupo de data exata
-    (`_desempatar_por_nome`, restrito aos pares dentro da tolerância de data) —
-    em vez de olhar ingenuamente só o primeiro candidato da lista. Isso evita
-    tanto falsos "Revisão Manual" em massa quanto combinações cruzadas
-    incorretas exportadas no resultado.
+    Quando há mais de um candidato do mesmo valor e da mesma data, o desempate
+    usa o algoritmo de pareamento por nome mutuamente único.
 
     Retorna (linhas_finalizadas, índices_erp_ainda_sem_par, índices_banco_ainda_sem_par):
-    o que não tem nenhum candidato mesmo com tolerância NÃO é finalizado aqui — fica
+    o que não tem candidato na mesma data NÃO é finalizado aqui — fica
     pendente para a fase de lote NET EMPR antes de virar "Não encontrado no
     banco"/"Somente banco" definitivamente.
     """
@@ -1026,7 +1014,7 @@ def _resolver_correspondencias_por_tolerancia(
         for i, j in confirmados.items():
             linha_erp, linha_banco = df_erp.loc[i], df_banco.loc[j]
             diferenca_dias = abs((linha_erp["Data ERP Usada"] - linha_banco["Data"]).days)
-            obs = f"Conciliado por tolerância de {diferenca_dias} dia(s), nome/descrição compatível"
+            obs = "Conciliado por valor, mesma data e nome/descrição compatível"
             linhas.append(_linha_resultado_erp(
                 linha_erp, STATUS_CONCILIADO, obs, TIPO_VALOR_DATA_TOLERANCIA,
                 linha_banco["Data"], linha_banco["Valor"], linha_banco["Favorecido"], diferenca_dias,
@@ -1056,8 +1044,8 @@ def _resolver_correspondencias_por_tolerancia(
                 diferenca_dias = None
                 motivo = MOTIVO_EMPATE_NOME
                 obs = (
-                    f"{len(candidatos)} lançamento(s) do banco compatível(is) dentro da tolerância de "
-                    f"{TOLERANCIA_DIAS_INDIVIDUAL} dia(s), sem par mutuamente único por nome"
+                    f"{len(candidatos)} lançamento(s) do banco com mesmo valor e mesma data, "
+                    "sem par mutuamente único por nome"
                 )
                 data_banco, valor_banco, descricao_banco = pd.NaT, None, None
 
@@ -1085,8 +1073,8 @@ def _resolver_correspondencias_por_tolerancia(
                 diferenca_dias = None
                 motivo = MOTIVO_EMPATE_NOME
                 obs = (
-                    f"{len(candidatos)} lançamento(s) do ERP compatível(is) dentro da tolerância de "
-                    f"{TOLERANCIA_DIAS_INDIVIDUAL} dia(s), sem par mutuamente único por nome"
+                    f"{len(candidatos)} lançamento(s) do ERP com mesmo valor e mesma data, "
+                    "sem par mutuamente único por nome"
                 )
                 data_erp, tipo_data_erp, valor_erp, descricao_erp = pd.NaT, "", None, None
                 compensacao_original, vencimento_original = None, None
@@ -1547,7 +1535,7 @@ def _verificar_possiveis_pares_nao_encontrados(
     finalizar um ERP como "Não encontrado no banco", verifica se existe um
     possível par no banco (usado ou não) por valor absoluto + data + nome/
     descrição — só roda sobre o que sobrou depois de TODAS as fases
-    principais (individual, tolerância, lote), para nunca interferir nelas.
+    principais (individual por data exata e lote), para nunca interferir nelas.
 
     Regra revisada em 2026-07-10-d (ver docs/HISTORICO_DECISOES.md): quando o
     candidato é único por valor+data dos dois lados (mutuamente único) e ainda
@@ -1658,17 +1646,32 @@ def _verificar_possiveis_pares_nao_encontrados(
                 status_atual = STATUS_REVISAO_MANUAL
                 banco_ref = candidatos[0]
         else:
-            # Sem candidato na mesma data: tenta por valor+nome em qualquer data.
+            # Sem candidato na mesma data: procura o mesmo valor em outras datas
+            # apenas para explicar o motivo. Esses itens nunca são conciliados.
             valor_i = df_erp.at[i, "_valor_abs"]
-            candidatos_nome = [
+            candidatos_data_divergente = [
                 j for j in df_banco.index
                 if df_banco.at[j, "_valor_abs"] == valor_i
-                and _nome_compativel(linha_erp["Favorecido"], df_banco.at[j, "Favorecido"])
+                and df_banco.at[j, "Data"] != linha_erp["Data ERP Usada"]
+            ]
+            candidatos_nome = [
+                j for j in candidatos_data_divergente
+                if _nome_compativel(linha_erp["Favorecido"], df_banco.at[j, "Favorecido"])
             ]
             if len(candidatos_nome) == 1:
                 motivo = MOTIVO_NAO_ENCONTRADO_DIVERGENCIA_DATA
                 status_atual = STATUS_REVISAO_MANUAL
                 banco_ref = candidatos_nome[0]
+            elif len(candidatos_data_divergente) == 1:
+                motivo = MOTIVO_NAO_ENCONTRADO_DIVERGENCIA_DATA
+                status_atual = STATUS_REVISAO_MANUAL
+                banco_ref = candidatos_data_divergente[0]
+            elif candidatos_data_divergente:
+                # Há mais de um possível par em outra data. Não escolhemos um
+                # deles, mas registramos claramente que a data bloqueou a
+                # conciliação.
+                motivo = MOTIVO_NAO_ENCONTRADO_DIVERGENCIA_DATA
+                status_atual = STATUS_REVISAO_MANUAL
 
         if status_atual == STATUS_CONCILIADO:
             continue
@@ -1763,7 +1766,7 @@ def conciliar(
 
     Segue a ordem obrigatória do CLAUDE.md: só o lado do banco de um lote NET
     EMP/EMPR claro é reservado ANTES de qualquer conciliação individual (passo
-    6) — nunca entra nas fases 1 (exata) e 2 (tolerância). O lado do ERP
+    6) — nunca entra nas fases individuais por valor e data. O lado do ERP
     (Salário/Folha, Férias, Rescisão, 13º) participa normalmente da
     conciliação individual contra todo o banco que não é lote — permitindo que
     um pagamento individual legítimo (ex.: funcionário pago fora do lote, via
@@ -1831,14 +1834,12 @@ def conciliar(
 
     def _e_tipo_lote_erp(i) -> bool:
         """Só o tipo (Salário/Folha, Férias, Rescisão, 13º), sem checar data —
-        usado para nunca deixar esses lançamentos usarem tolerância de data
-        (Mudança 2026-07-10, regra 1)."""
+        usado para manter esses lançamentos no fluxo apropriado de lote."""
         categoria = df_erp.at[i, "Categoria"] if "Categoria" in df_erp.columns else ""
         return _classificar_tipo_lote(df_erp.at[i, "Favorecido"], categoria) is not None
 
     def _e_candidato_lote_erp(i) -> bool:
-        """Tipo + data EXATA (Mudança 2026-07-10: lote NET EMP não usa
-        tolerância de data) igual à de algum lote bancário claro do mesmo tipo."""
+        """Tipo + data EXATA igual à de algum lote bancário claro do mesmo tipo."""
         categoria = df_erp.at[i, "Categoria"] if "Categoria" in df_erp.columns else ""
         tipo = _classificar_tipo_lote(df_erp.at[i, "Favorecido"], categoria)
         if tipo is None:
@@ -1848,14 +1849,13 @@ def conciliar(
             return False
         return data_erp in datas_por_tipo_lote_banco.get(tipo, [])
 
-    # Passos 7 a 10: conciliação individual (exata, tolerância, duplicidade
-    # idêntica/equivalente e desempate por nome já embutidos em cada fase) —
+    # Passos 7 a 10: conciliação individual por data exata, duplicidade
+    # idêntica/equivalente e desempate por nome —
     # roda sobre TODO o ERP (inclusive remuneração/férias/rescisão/13º) contra
     # o banco que não é lote NET EMP/EMPR claro. Um lançamento ERP de lote sem
     # par seguro é adiado (via `_e_candidato_lote_erp`) em vez de virar Revisão
-    # Manual, e segue pendente para a etapa de lote. Na fase de tolerância,
-    # lançamentos de lote nunca tentam par por proximidade de data
-    # (`_e_tipo_lote_erp` — Mudança 2026-07-10).
+    # Manual, e segue pendente para a etapa de lote. A fase remanescente possui
+    # janela zero e nunca tenta par por proximidade de data.
     linhas_exatas, resolvidos_erp, resolvidos_banco = _resolver_correspondencias_exatas(
         df_erp, df_banco_individual, _e_candidato_lote_erp
     )

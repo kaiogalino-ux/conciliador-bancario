@@ -35,7 +35,10 @@ def main() -> None:
         # antes dessa funcionalidade existir.
         config_ia = carregar_configuracao_ia(logger)
         resultado = conciliar(df_erp, df_banco, logger, config_ia=config_ia)
-        exportar_resultado(resultado, ARQUIVO_RESULTADO, logger)
+        exportar_resultado(
+            resultado, ARQUIVO_RESULTADO, logger,
+            periodo_inicial=periodo_inicial, periodo_final=periodo_final,
+        )
     except Exception:
         logger.exception("Falha ao executar a conciliação.")
         raise

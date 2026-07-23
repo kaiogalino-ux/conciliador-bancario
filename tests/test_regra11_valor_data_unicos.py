@@ -31,7 +31,7 @@ from src.conciliador import (
     _verificar_possiveis_pares_nao_encontrados,
     conciliar,
 )
-from src.exportador import NOME_ABA_RESULTADO, exportar_resultado
+from src.exportador import NOME_ABA_BASE_DETALHADA, NOME_ABA_RESUMO, exportar_resultado
 from tests.conftest import construir_df_banco, construir_df_erp
 
 
@@ -155,7 +155,7 @@ def test_resultado_xlsx_tem_apenas_uma_aba(tmp_path, logger_silencioso):
     exportar_resultado(resultado, caminho, logger_silencioso)
 
     workbook = openpyxl.load_workbook(caminho, read_only=True)
-    assert workbook.sheetnames == [NOME_ABA_RESULTADO] == ["Resultado"]
+    assert workbook.sheetnames == [NOME_ABA_RESUMO, NOME_ABA_BASE_DETALHADA] == ["Resumo", "Base Detalhada"]
 
 
 # ---------------------------------------------------------------------------

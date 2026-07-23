@@ -194,9 +194,8 @@ def test_pagamento_individual_nomeado_sai_do_pool_do_lote_antes_da_soma(logger_s
 
 
 # ---------------------------------------------------------------------------
-# Mudança 2026-07-10 (docs/HISTORICO_DECISOES.md): tolerância de data separada
-# para NET EMP (nenhuma) e pagamentos individuais (1 dia, só com evidência
-# forte), e remuneração não pode ser consumida antes do lote só por valor+data.
+# Regra global de 2026-07-23: lote e pagamento individual exigem a mesma data.
+# Remuneração também não pode ser consumida antes do lote só por valor+data.
 # ---------------------------------------------------------------------------
 
 
@@ -220,9 +219,8 @@ def test_net_emp_nao_fecha_com_data_diferente_mesmo_por_1_dia(logger_silencioso)
     assert erp_linha["Motivo Revisão"].str.contains("não coincide com nenhuma data de lote", na=False).all()
 
 
-def test_pagamento_individual_tolerancia_1_dia_com_nome_concilia(logger_silencioso):
-    """Pagamento comum (não-lote) com 1 dia de diferença entre Data ERP Usada e
-    Data Banco concilia automaticamente quando o nome/descrição é compatível."""
+def test_pagamento_individual_com_um_dia_de_diferenca_nao_concilia(logger_silencioso):
+    """Mesmo com nome e valor compatíveis, datas diferentes não conciliam."""
     df_erp = construir_df_erp([
         {"data_usada": date(2026, 6, 10), "valor": 500.00, "favorecido": "Fornecedor Alfa Ltda"},
     ])
@@ -232,14 +230,15 @@ def test_pagamento_individual_tolerancia_1_dia_com_nome_concilia(logger_silencio
 
     resultado = conciliar(df_erp, df_banco, logger_silencioso)
 
-    assert (resultado["Status"] == STATUS_CONCILIADO).all()
-    assert (resultado["Tipo Conciliação"] == TIPO_VALOR_DATA_TOLERANCIA).all()
-    assert (resultado["Diferença de Dias"] == 1).all()
+    erp_linha = resultado[resultado["Origem"] == "ERP"]
+    banco_linha = resultado[resultado["Origem"] == "Banco"]
+    assert (erp_linha["Status"] == STATUS_REVISAO_MANUAL).all()
+    assert erp_linha["Motivo Revisão"].str.contains("mesma data", case=False, na=False).all()
+    assert (banco_linha["Status"] == "Somente banco").all()
 
 
-def test_pagamento_individual_tolerancia_1_dia_sem_nome_vai_para_revisao_manual(logger_silencioso):
-    """Candidato único dentro de 1 dia de tolerância, mas sem nenhum termo em
-    comum entre as descrições, não pode ser conciliado automaticamente."""
+def test_pagamento_individual_data_diferente_sem_nome_vai_para_revisao_manual(logger_silencioso):
+    """Candidato único em outra data e sem nome compatível não concilia."""
     df_erp = construir_df_erp([
         {"data_usada": date(2026, 6, 15), "valor": 700.00, "favorecido": "Consultoria XPTO 123"},
     ])
@@ -249,16 +248,14 @@ def test_pagamento_individual_tolerancia_1_dia_sem_nome_vai_para_revisao_manual(
 
     resultado = conciliar(df_erp, df_banco, logger_silencioso)
 
-    assert (resultado["Status"] == STATUS_REVISAO_MANUAL).all()
-    assert resultado["Motivo Revisão"].str.startswith(MOTIVO_TOLERANCIA_SEM_EVIDENCIA).all()
+    erp_linha = resultado[resultado["Origem"] == "ERP"]
+    assert (erp_linha["Status"] == STATUS_REVISAO_MANUAL).all()
+    assert erp_linha["Motivo Revisão"].str.contains("mesma data", case=False, na=False).all()
 
 
 def test_pagamento_individual_2_dias_de_diferenca_nao_concilia_automaticamente(logger_silencioso):
-    """A tolerância individual caiu de 3 para 1 dia: uma diferença de 2 dias
-    nunca concilia automaticamente (fora da fase de tolerância). Mas, com a
-    verificação final de "Não encontrado no banco" (2026-07-10), o par não
-    desaparece silenciosamente — como valor bate e o nome é compatível, vira
-    Revisão Manual com o motivo de divergência de data, não "Não encontrado"."""
+    """Qualquer diferença de data bloqueia a conciliação. O possível par fica
+    visível em Revisão Manual com motivo explícito, sem desaparecer."""
     df_erp = construir_df_erp([
         {"data_usada": date(2026, 6, 20), "valor": 300.00, "favorecido": "Fornecedor Beta"},
     ])
@@ -272,7 +269,7 @@ def test_pagamento_individual_2_dias_de_diferenca_nao_concilia_automaticamente(l
     # centrada no ERP); o banco pendente continua "Somente banco" normalmente.
     erp_linha = resultado[resultado["Origem"] == "ERP"]
     assert (erp_linha["Status"] == STATUS_REVISAO_MANUAL).all()
-    assert erp_linha["Motivo Revisão"].str.contains("divergência de data", case=False, na=False).all()
+    assert erp_linha["Motivo Revisão"].str.contains("mesma data", case=False, na=False).all()
 
 
 def test_remuneracao_sem_nome_e_sem_lote_ativo_vai_para_revisao_manual(logger_silencioso):

@@ -102,11 +102,9 @@ def _elegivel_para_ia(linha: dict, df_erp: pd.DataFrame) -> bool:
 def _selecionar_candidatos_banco(
     i, df_erp: pd.DataFrame, df_banco: pd.DataFrame, bancos_disponiveis, config_ia: ConfiguracaoIA
 ) -> list:
-    """Pré-seleciona, por regra objetiva, até `config_ia.maximo_candidatos`
-    índices do banco (dentre `bancos_disponiveis`) para o ERP `i`: valor
-    absoluto exato (nunca aproximado) e diferença de data até
-    `config_ia.janela_busca_dias`. Ordenado por proximidade de data (empate
-    pelo próprio índice, para ser determinístico)."""
+    """Pré-seleciona até `config_ia.maximo_candidatos` com valor absoluto
+    exato e obrigatoriamente a mesma data. A trava não depende do valor
+    recebido em `config_ia.janela_busca_dias`."""
     valor_alvo = round(abs(df_erp.at[i, "Valor"]), 2)
     data_alvo = df_erp.at[i, "Data ERP Usada"]
 
@@ -121,7 +119,9 @@ def _selecionar_candidatos_banco(
             continue
 
         diferenca_dias = abs((data_alvo - data_banco).days)
-        if diferenca_dias > config_ia.janela_busca_dias:
+        # Trava de negócio: nenhuma configuração pode permitir conciliação
+        # entre lançamentos de datas diferentes.
+        if diferenca_dias != 0:
             continue
 
         candidatos.append((diferenca_dias, j))
@@ -182,8 +182,8 @@ def _construir_prompt(i, df_erp: pd.DataFrame, candidatos: list, df_banco: pd.Da
         "Lançamento do ERP em Revisão Manual:\n"
         f"Data ERP Usada={linha_erp['Data ERP Usada']}, Valor={abs(linha_erp['Valor']):.2f}, "
         f"Favorecido=\"{linha_erp['Favorecido']}\", Motivo Revisão=\"{motivo_revisao or ''}\"\n\n"
-        "Candidatos bancários disponíveis (mesmo valor absoluto, dentro da janela de data "
-        "permitida):\n" + "\n".join(linhas_candidatos)
+        "Candidatos bancários disponíveis (mesmo valor absoluto e mesma data):\n"
+        + "\n".join(linhas_candidatos)
     )
     return sistema, usuario, labels
 
@@ -240,7 +240,7 @@ def _proposta_sem_candidato(i, config_ia: ConfiguracaoIA) -> _Proposta:
         decisao_bruta=DECISAO_SEM_CANDIDATO,
         motivo_ia=(
             "Nenhum lançamento bancário disponível dentro dos critérios objetivos "
-            f"(mesmo valor absoluto, até {config_ia.janela_busca_dias} dia(s) de diferença de data)."
+            "(mesmo valor absoluto e mesma data)."
         ),
         validacao_fixa=VALIDACAO_NAO_APLICAVEL,
     )
@@ -307,8 +307,8 @@ def _revalidar_decisao(
         return False, "data ausente", None
 
     diferenca_dias = abs((data_erp - data_banco).days)
-    if diferenca_dias > config_ia.janela_busca_dias:
-        return False, "diferença de data acima da janela de busca de candidatos", diferenca_dias
+    if diferenca_dias != 0:
+        return False, "data diferente; conciliação exige a mesma data", diferenca_dias
 
     categoria = df_erp.at[i, "Categoria"] if "Categoria" in df_erp.columns else ""
     if _classificar_tipo_lote(df_erp.at[i, "Favorecido"], categoria) is not None:

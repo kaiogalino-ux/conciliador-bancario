@@ -19,6 +19,7 @@ dados/
 # Cache de testes.
 .pytest_cache/
 .test_tmp/
+tmp_pytest_*/
 
 # Configurações locais do Claude Code (específicas desta máquina).
 .claude/settings.local.json

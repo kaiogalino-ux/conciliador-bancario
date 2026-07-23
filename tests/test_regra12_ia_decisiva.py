@@ -4,9 +4,11 @@ determinísticas, sobre o que sobrar em Revisão Manual elegível; nunca aplica
 nada em IA_MODO=DESATIVADA (nem cria as colunas de IA) nem em IA_MODO=SOMBRA;
 só aplica automaticamente em IA_MODO=AUTOMATICO quando passa em TODAS as
 revalidações do Python, incluindo confiança mínima diferenciada por modo
-(SOMBRA 0.70 / AUTOMATICO 0.95) e janela de aplicação automática (1 dia,
-mesmo a busca de candidatos indo até 5 dias); nunca aplica quando 2+
-lançamentos disputam o mesmo candidato bancário.
+(SOMBRA 0.70 / AUTOMATICO 0.95) e tolerância de data zero (revisada em
+2026-07-23, ver CLAUDE.md "Regra de data exata"): candidatos de outra data
+nunca são oferecidos à IA, e uma decisão que referencie um candidato fora da
+lista oferecida é sempre rejeitada como formato inválido; nunca aplica quando
+2+ lançamentos disputam o mesmo candidato bancário.
 
 Usa sempre um `cliente_ia` falso e determinístico, injetado via
 `conciliar(..., cliente_ia=...)` — nenhum teste aqui faz chamada de rede real.
@@ -23,7 +25,7 @@ from tests.conftest import construir_df_banco, construir_df_erp
 def _config(modo, **overrides):
     base = dict(
         modo=modo, api_key="sk-teste", modelo="openai/gpt-oss-120b",
-        janela_busca_dias=5, janela_automatica_dias=1,
+        janela_busca_dias=0, janela_automatica_dias=0,
         maximo_candidatos=5, confianca_minima_sombra=0.70, confianca_minima_automatico=0.95,
     )
     base.update(overrides)
@@ -60,7 +62,8 @@ def test_config_none_mantem_colunas_e_comportamento_atuais(logger_silencioso):
         {"data_usada": date(2026, 6, 10), "valor": 700.00, "favorecido": "Fornecedor Solo Ltda"},
     ])
     df_banco = construir_df_banco([
-        {"data": date(2026, 6, 11), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO ABC"},
     ])
 
     resultado = conciliar(df_erp, df_banco, logger_silencioso)
@@ -68,7 +71,7 @@ def test_config_none_mantem_colunas_e_comportamento_atuais(logger_silencioso):
     assert list(resultado.columns) == COLUNAS_RESULTADO
     for coluna in COLUNAS_IA:
         assert coluna not in resultado.columns
-    assert (resultado["Status"] == STATUS_REVISAO_MANUAL).all()
+    assert resultado.loc[resultado["Origem"] == "ERP", "Status"].eq(STATUS_REVISAO_MANUAL).all()
 
 
 def test_config_desativada_explicita_tambem_nao_cria_colunas(logger_silencioso):
@@ -76,7 +79,8 @@ def test_config_desativada_explicita_tambem_nao_cria_colunas(logger_silencioso):
         {"data_usada": date(2026, 6, 10), "valor": 700.00, "favorecido": "Fornecedor Solo Ltda"},
     ])
     df_banco = construir_df_banco([
-        {"data": date(2026, 6, 11), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO ABC"},
     ])
 
     resultado = conciliar(df_erp, df_banco, logger_silencioso, config_ia=_config("DESATIVADA"))
@@ -94,7 +98,8 @@ def test_sombra_aprovado_nunca_altera_status(logger_silencioso):
         {"data_usada": date(2026, 6, 10), "valor": 700.00, "favorecido": "Fornecedor Solo Ltda"},
     ])
     df_banco = construir_df_banco([
-        {"data": date(2026, 6, 11), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO ABC"},
     ])
     cliente = _cliente_por_favorecido({"Fornecedor Solo Ltda": ("CONCILIAR", "C1", 0.80, "Nome e valor batem.")})
 
@@ -110,11 +115,12 @@ def test_sombra_aprovado_nunca_altera_status(logger_silencioso):
     assert "ERP+Banco" not in resultado["Origem"].values
 
 
-def test_sombra_aceita_candidato_alem_da_janela_automatica_mas_nunca_aplica(logger_silencioso):
-    # P e Q disputam X (mesma data) -> Revisão Manual por nome insuficiente.
-    # Y é um candidato independente, 3 dias depois de P, nunca tocado pelas
-    # regras determinísticas (fica "Somente banco", mas segue disponível
-    # para a IA). SOMBRA não exige a janela de 1 dia da aplicação automática.
+def test_sombra_rejeita_candidato_fora_da_lista_oferecida_e_nunca_aplica(logger_silencioso):
+    # Gama e Delta disputam ZZZ (mesma data) -> só ZZZ é oferecido à IA como
+    # candidato; "GAMA TARDIO" (3 dias depois) tem data diferente e nunca
+    # entra na lista (tolerância de data zero). O cliente fake ainda assim
+    # "escolhe" C2, um candidato que não foi oferecido: a validação de
+    # formato do Python rejeita isso, independentemente do modo.
     df_erp = construir_df_erp([
         {"data_usada": date(2026, 6, 10), "valor": 900.00, "favorecido": "Fornecedor Gama"},
         {"data_usada": date(2026, 6, 10), "valor": 900.00, "favorecido": "Fornecedor Delta"},
@@ -132,12 +138,12 @@ def test_sombra_aceita_candidato_alem_da_janela_automatica_mas_nunca_aplica(logg
 
     linha_gama = resultado[resultado["Descrição ERP"] == "Fornecedor Gama"].iloc[0]
     assert linha_gama["Status"] == STATUS_REVISAO_MANUAL
-    assert linha_gama["Decisão IA"] == "CONCILIAR"
-    assert linha_gama["Validação IA"] == "Aprovada (modo sombra, não aplicado)"
+    assert linha_gama["Decisão IA"] == "Erro na consulta à IA"
+    assert linha_gama["Validação IA"] == "Rejeitada: resposta da IA em formato inválido"
 
 
 # ---------------------------------------------------------------------------
-# AUTOMATICO — confiança e janela diferenciadas
+# AUTOMATICO — confiança mínima diferenciada e tolerância de data zero
 # ---------------------------------------------------------------------------
 
 
@@ -146,7 +152,9 @@ def test_automatico_confianca_abaixo_do_minimo_automatico_nao_aplica(logger_sile
         {"data_usada": date(2026, 6, 10), "valor": 700.00, "favorecido": "Fornecedor Solo Ltda"},
     ])
     df_banco = construir_df_banco([
-        {"data": date(2026, 6, 11), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO ABC"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO ABC"},
     ])
     # 0.80 passaria em SOMBRA (>= 0.70) mas não em AUTOMATICO (< 0.95).
     cliente = _cliente_por_favorecido({"Fornecedor Solo Ltda": ("CONCILIAR", "C1", 0.80, "Razoavelmente parecido.")})
@@ -163,32 +171,32 @@ def test_automatico_aplica_quando_confianca_alta_e_dentro_da_janela_automatica(l
         {"data_usada": date(2026, 6, 10), "valor": 700.00, "favorecido": "Fornecedor Solo Ltda"},
     ])
     df_banco = construir_df_banco([
-        {"data": date(2026, 6, 11), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},  # 1 dia de diferença
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO ABC"},
     ])
     cliente = _cliente_por_favorecido({"Fornecedor Solo Ltda": ("CONCILIAR", "C1", 0.97, "Único candidato, valor exato.")})
 
     resultado = conciliar(df_erp, df_banco, logger_silencioso, config_ia=_config("AUTOMATICO"), cliente_ia=cliente)
 
-    assert len(resultado) == 1
-    linha = resultado.iloc[0]
+    linha = resultado[resultado["Origem"] == "ERP+Banco"].iloc[0]
     assert linha["Status"] == STATUS_CONCILIADO
     assert linha["Tipo Conciliação"] == TIPO_CONCILIACAO_IA
     assert linha["Origem"] == "ERP+Banco"
-    assert linha["Data Banco"] == date(2026, 6, 11)
+    assert linha["Data Banco"] == date(2026, 6, 10)
     assert linha["Valor Banco"] == -700.00
     assert linha["Descrição Banco"] == "PAGAMENTO GENERICO XPTO"
     assert linha["Validação IA"] == "Aprovada e conciliado automaticamente"
     assert linha["Modelo IA"] == "openai/gpt-oss-120b"
 
 
-def test_automatico_nao_aplica_quando_diferenca_de_data_maior_que_janela_automatica(logger_silencioso):
+def test_automatico_rejeita_candidato_fora_da_lista_oferecida_e_nao_aplica(logger_silencioso):
     df_erp = construir_df_erp([
         {"data_usada": date(2026, 6, 10), "valor": 900.00, "favorecido": "Fornecedor Gama"},
         {"data_usada": date(2026, 6, 10), "valor": 900.00, "favorecido": "Fornecedor Delta"},
     ])
     df_banco = construir_df_banco([
         {"data": date(2026, 6, 10), "valor": -900.00, "favorecido": "PAGAMENTO GENERICO ZZZ"},
-        {"data": date(2026, 6, 13), "valor": -900.00, "favorecido": "PAGAMENTO GAMA TARDIO"},  # 3 dias
+        {"data": date(2026, 6, 13), "valor": -900.00, "favorecido": "PAGAMENTO GAMA TARDIO"},  # data diferente: nunca oferecido à IA
     ])
     cliente = _cliente_por_favorecido({
         "Fornecedor Gama": ("CONCILIAR", "C2", 0.97, "Candidato mais distante corresponde ao nome."),
@@ -199,9 +207,7 @@ def test_automatico_nao_aplica_quando_diferenca_de_data_maior_que_janela_automat
 
     linha_gama = resultado[resultado["Descrição ERP"] == "Fornecedor Gama"].iloc[0]
     assert linha_gama["Status"] == STATUS_REVISAO_MANUAL
-    assert linha_gama["Validação IA"].startswith(
-        "Rejeitada: diferença de data acima do permitido para aplicação automática"
-    )
+    assert linha_gama["Validação IA"] == "Rejeitada: resposta da IA em formato inválido"
     assert "ERP+Banco" not in resultado["Origem"].values
 
 
@@ -212,6 +218,7 @@ def test_automatico_conflito_entre_dois_erp_nenhum_e_aplicado(logger_silencioso)
     ])
     df_banco = construir_df_banco([
         {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO ABC"},
     ])
     # As duas propostas "escolhem" o mesmo (único) candidato disponível.
     cliente = _cliente_por_favorecido({}, default=("CONCILIAR", "C1", 0.99, "Bate com o único candidato."))
@@ -228,9 +235,9 @@ def test_automatico_conflito_entre_dois_erp_nenhum_e_aplicado(logger_silencioso)
 def test_automatico_sem_candidato_disponivel_nunca_chama_ia(logger_silencioso):
     # A verificação determinística de "Não encontrado no banco" acha esse par
     # por nome forte em outra data (sem limite de dias) e deixa a linha em
-    # Revisão Manual — mas a busca de candidatos da própria IA (limitada a
-    # IA_JANELA_BUSCA_DIAS=5) não alcança um banco a 19 dias de distância,
-    # então a IA nunca chega a ser chamada para este lançamento.
+    # Revisão Manual — mas a busca de candidatos da própria IA exige a mesma
+    # data (IA_JANELA_BUSCA_DIAS=0) e não alcança um banco a 19 dias de
+    # distância, então a IA nunca chega a ser chamada para este lançamento.
     df_erp = construir_df_erp([
         {"data_usada": date(2026, 6, 1), "valor": 555.00, "favorecido": "Fornecedor Tardio Ltda"},
     ])
@@ -254,7 +261,8 @@ def test_erro_na_consulta_a_ia_mantem_revisao_manual_sem_quebrar(logger_silencio
         {"data_usada": date(2026, 6, 10), "valor": 700.00, "favorecido": "Fornecedor Solo Ltda"},
     ])
     df_banco = construir_df_banco([
-        {"data": date(2026, 6, 11), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO XPTO"},
+        {"data": date(2026, 6, 10), "valor": -700.00, "favorecido": "PAGAMENTO GENERICO ABC"},
     ])
 
     def _cliente_com_falha(sistema, usuario, labels, modelo, api_key):

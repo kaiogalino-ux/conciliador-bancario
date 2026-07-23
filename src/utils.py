@@ -229,7 +229,12 @@ def encontrar_arquivo_mais_recente(pasta: Path, extensoes: tuple[str, ...]) -> P
     arquivos = [
         arquivo
         for arquivo in pasta.iterdir()
-        if arquivo.is_file() and arquivo.suffix.lower() in extensoes
+        if (
+            arquivo.is_file()
+            and arquivo.suffix.lower() in extensoes
+            and not arquivo.name.startswith("~$")
+            and arquivo.stat().st_size > 0
+        )
     ]
     if not arquivos:
         return None

@@ -25,8 +25,8 @@ CONFIG_PADRAO = ConfiguracaoIA(
     modo="SOMBRA",
     api_key="sk-teste",
     modelo="openai/gpt-oss-120b",
-    janela_busca_dias=5,
-    janela_automatica_dias=1,
+    janela_busca_dias=0,
+    janela_automatica_dias=0,
     maximo_candidatos=5,
     confianca_minima_sombra=0.70,
     confianca_minima_automatico=0.95,
@@ -44,10 +44,10 @@ def _erp_unico(data_usada, valor, favorecido="Fornecedor Ambíguo", categoria=""
 # ---------------------------------------------------------------------------
 
 
-def test_candidato_dentro_da_janela_de_busca_entra():
+def test_candidato_da_mesma_data_entra():
     df_erp = _erp_unico(date(2026, 6, 10), 500.00)
     df_banco = construir_df_banco([
-        {"data": date(2026, 6, 12), "valor": -500.00, "favorecido": "PIX QUALQUER"},
+        {"data": date(2026, 6, 10), "valor": -500.00, "favorecido": "PIX QUALQUER"},
     ])
 
     candidatos = _selecionar_candidatos_banco(0, df_erp, df_banco, df_banco.index, CONFIG_PADRAO)
@@ -55,7 +55,7 @@ def test_candidato_dentro_da_janela_de_busca_entra():
     assert candidatos == [0]
 
 
-def test_candidato_no_limite_exato_da_janela_entra():
+def test_candidato_de_data_diferente_fica_de_fora():
     df_erp = _erp_unico(date(2026, 6, 10), 500.00)
     df_banco = construir_df_banco([
         {"data": date(2026, 6, 15), "valor": -500.00, "favorecido": "PIX QUALQUER"},  # 5 dias
@@ -63,7 +63,7 @@ def test_candidato_no_limite_exato_da_janela_entra():
 
     candidatos = _selecionar_candidatos_banco(0, df_erp, df_banco, df_banco.index, CONFIG_PADRAO)
 
-    assert candidatos == [0]
+    assert candidatos == []
 
 
 def test_candidato_alem_da_janela_fica_de_fora():
@@ -99,14 +99,14 @@ def test_indice_fora_do_pool_disponivel_nunca_aparece():
     assert candidatos == []
 
 
-def test_corta_no_maximo_configurado_ordenado_por_proximidade():
+def test_corta_no_maximo_configurado_apenas_entre_candidatos_da_mesma_data():
     df_erp = _erp_unico(date(2026, 6, 10), 500.00)
     df_banco = construir_df_banco([
-        {"data": date(2026, 6, 14), "valor": -500.00, "favorecido": "D"},  # 4 dias
+        {"data": date(2026, 6, 10), "valor": -500.00, "favorecido": "D"},
         {"data": date(2026, 6, 10), "valor": -500.00, "favorecido": "A"},  # 0 dias
-        {"data": date(2026, 6, 12), "valor": -500.00, "favorecido": "B"},  # 2 dias
-        {"data": date(2026, 6, 13), "valor": -500.00, "favorecido": "C"},  # 3 dias
-        {"data": date(2026, 6, 11), "valor": -500.00, "favorecido": "AB"},  # 1 dia
+        {"data": date(2026, 6, 10), "valor": -500.00, "favorecido": "B"},
+        {"data": date(2026, 6, 10), "valor": -500.00, "favorecido": "C"},
+        {"data": date(2026, 6, 11), "valor": -500.00, "favorecido": "AB"},  # excluído
         {"data": date(2026, 6, 15), "valor": -500.00, "favorecido": "E"},  # 5 dias
     ])
     config = ConfiguracaoIA(
@@ -116,8 +116,8 @@ def test_corta_no_maximo_configurado_ordenado_por_proximidade():
 
     candidatos = _selecionar_candidatos_banco(0, df_erp, df_banco, df_banco.index, config)
 
-    # Os 3 mais próximos: índices 1 (0 dias), 4 (1 dia), 2 (2 dias).
-    assert candidatos == [1, 4, 2]
+    # A configuração manual acima não pode contornar a trava de mesma data.
+    assert candidatos == [0, 1, 2]
 
 
 # ---------------------------------------------------------------------------
