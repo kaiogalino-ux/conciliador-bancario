@@ -1,0 +1,56 @@
+# Blueprint de hospedagem do backend do Conciliador Bancário.
+#
+# Implementa a decisão de 2026-07-30 registrada em docs/HISTORICO_DECISOES.md:
+# o backend roda em container Docker (nunca em função serverless), porque
+# pandas + openpyxl + ofxparse estouram o limite de uma lambda e
+# src/exportador_shapes.py lê arquivos de src/assets/painel_visual/ em tempo de
+# execução, o que exige um sistema de arquivos de verdade.
+#
+# Como usar: no painel do Render, New > Blueprint, e aponte para este
+# repositório. As variáveis marcadas com `sync: false` precisam ser preenchidas
+# no painel do serviço — nunca neste arquivo, que é versionado.
+
+services:
+  - type: web
+    name: conciliador-api
+    runtime: docker
+    plan: free
+    region: oregon
+
+    # O contexto é `backend/`, igual ao build local documentado no Dockerfile
+    # (`docker build -t conciliador-api ./backend`). Assim o .dockerignore de
+    # backend/ continua valendo e dados/, logs/ e .env ficam fora da imagem.
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+
+    # Rota já existente em api/main.py, criada exatamente para este uso.
+    healthCheckPath: /health
+
+    envVars:
+      # Origens autorizadas a chamar a API, separadas por vírgula. Precisa
+      # conter o domínio do frontend na Vercel, senão o navegador bloqueia a
+      # chamada no CORS. Nunca "*": a API recebe planilhas financeiras.
+      # Ex.: https://conciliador-bancario.vercel.app
+      - key: CORS_ORIGINS
+        sync: false
+
+      # Token compartilhado exigido no header "X-API-Token". Vazio deixa a API
+      # aberta — aceitável só localmente, NÃO numa URL pública. Precisa ser
+      # igual ao NEXT_PUBLIC_API_TOKEN configurado na Vercel.
+      - key: API_TOKEN
+        sync: false
+
+      # O código roda como usuário sem privilégio e o disco do container é
+      # somente-leitura; tudo que é escrito vai para /tmp. Estes valores
+      # repetem os defaults do Dockerfile, explicitados aqui para que uma
+      # mudança de host não os perca silenciosamente.
+      - key: CONCILIADOR_RUNTIME_DIR
+        value: /tmp/conciliador-execucoes
+      - key: CONCILIADOR_LOG_DIR
+        value: /tmp/conciliador-logs
+
+      # Camada de IA desativada por padrão, como em backend/.env.example. Para
+      # ligar, troque para SOMBRA ou AUTOMATICO e cadastre GROQ_API_KEY no
+      # painel do serviço (nunca aqui).
+      - key: IA_MODO
+        value: DESATIVADA
