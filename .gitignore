@@ -16,6 +16,11 @@ frontend/node_modules_broken_*/
 .next/
 frontend/.next/
 *.tsbuildinfo
+
+# Gerado pelo Next.js a cada build/dev (o proprio arquivo avisa que nao deve
+# ser editado). Alterna entre .next/types e .next/dev/types conforme o ultimo
+# comando executado, entao versiona-lo so cria ida e volta no historico.
+frontend/next-env.d.ts
 .open-next/
 .wrangler/
 frontend/.env.local
