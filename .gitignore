@@ -33,6 +33,10 @@ backend/logs/
 resultado/
 backend/resultado/
 
+# Logs avulsos de servidores de desenvolvimento (uvicorn, next dev) — podem
+# conter descrições de lançamentos, nunca devem ser versionados.
+*.log
+
 # Dados reais de ERP/banco (contêm informações financeiras da empresa) —
 # nunca devem ser versionados.
 dados/
