@@ -24,7 +24,11 @@ EXTENSOES_BANCO = (".ofx", ".xlsx", ".xls")
 LIMITE_ARQUIVO_BYTES = 30 * 1024 * 1024
 
 NOME_RESULTADO = "Resultado.xlsx"
-HORAS_RETENCAO_PADRAO = 6
+
+# Retenção do Resultado.xlsx após a conciliação. Curta de propósito: no uso
+# local o download acontece segundos depois, e planilhas financeiras não devem
+# ficar paradas no disco além do necessário.
+HORAS_RETENCAO_PADRAO = 2
 
 VARIAVEL_PASTA_EXECUCOES = "CONCILIADOR_RUNTIME_DIR"
 PASTA_EXECUCOES_PADRAO = Path(__file__).resolve().parent.parent / ".web-runtime"
@@ -119,6 +123,48 @@ def gravar_upload(destino: Path, nome_original: str, alternativa: str, conteudo:
     caminho = destino / nome_seguro(nome_original, alternativa)
     caminho.write_bytes(conteudo)
     return caminho
+
+
+def _apagar_pasta_insistindo(pasta: Path, tentativas: int = 3) -> bool:
+    """Apaga uma pasta tolerando bloqueios passageiros do Windows.
+
+    Os leitores fecham corretamente o que abrem (`src/utils.py` usa
+    `with pd.ExcelFile(...)`), então na prática a primeira tentativa resolve.
+    As repetições existem para o que está fora do controle do processo:
+    antivírus varrendo o arquivo recém-escrito, o indexador do Windows ou um
+    backup que segurou o handle por alguns milissegundos.
+
+    Nunca levanta exceção — a limpeza é higiene, não pode derrubar uma
+    conciliação que deu certo.
+    """
+    for tentativa in range(tentativas):
+        shutil.rmtree(pasta, ignore_errors=True)
+        if not pasta.exists():
+            return True
+        time.sleep(0.05 * (tentativa + 1))
+    return not pasta.exists()
+
+
+def finalizar_execucao(execucao: Execucao) -> None:
+    """Apaga os arquivos de entrada assim que a conciliação termina.
+
+    Chamada num `finally`, portanto vale igualmente para sucesso e para erro:
+    o ERP e o extrato bancário existem no disco só durante o processamento.
+
+    O `Resultado.xlsx` é preservado — é ele que o usuário ainda vai baixar, e
+    some depois pela expiração (`limpar_execucoes_antigas`). Se a execução
+    falhou e nem chegou a gerar o resultado, a pasta inteira é removida: não
+    faz sentido manter um diretório vazio, e é uma garantia a mais de que
+    nenhum arquivo financeiro fica para trás.
+
+    Nunca levanta exceção: uma falha ao apagar (arquivo em uso no Windows, por
+    exemplo) não pode transformar uma conciliação bem-sucedida em erro.
+    """
+    for pasta in (execucao.pasta_erp, execucao.pasta_banco):
+        _apagar_pasta_insistindo(pasta)
+
+    if not execucao.caminho_resultado.is_file():
+        _apagar_pasta_insistindo(execucao.caminho_resultado.parent)
 
 
 def caminho_resultado(run_id: str) -> Path | None:

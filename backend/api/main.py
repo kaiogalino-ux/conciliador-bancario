@@ -34,6 +34,7 @@ from api.armazenamento import (
     ErroDeValidacao,
     caminho_resultado,
     criar_execucao,
+    finalizar_execucao,
     gravar_upload,
     limpar_execucoes_antigas,
     validar_upload,
@@ -119,6 +120,7 @@ async def reconciliar(
     bank: UploadFile = File(...),
 ) -> JSONResponse:
     """Executa a conciliação sobre os dois arquivos enviados."""
+    execucao = None
     try:
         conteudo_erp = await erp.read()
         conteudo_banco = await bank.read()
@@ -155,6 +157,11 @@ async def reconciliar(
             500,
             str(erro)[:600],
         )
+    finally:
+        # Vale para sucesso e para erro: o ERP e o extrato saem do disco assim
+        # que a conciliação termina. Só o Resultado.xlsx fica, até o download.
+        if execucao is not None:
+            finalizar_execucao(execucao)
 
 
 @app.get("/api/reconcile/{run_id}/download", dependencies=[Depends(exigir_token)])

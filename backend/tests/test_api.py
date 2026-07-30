@@ -11,7 +11,12 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from api.armazenamento import LIMITE_ARQUIVO_BYTES, nome_seguro
+from api.armazenamento import (
+    HORAS_RETENCAO_PADRAO,
+    LIMITE_ARQUIVO_BYTES,
+    nome_seguro,
+    pasta_execucoes,
+)
 
 MIME_EXCEL = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -204,6 +209,122 @@ def test_token_bloqueia_quando_configurado(tmp_path, monkeypatch):
     assert (
         _enviar(cliente, headers={"X-API-Token": "segredo-de-teste"}).status_code == 200
     )
+
+
+def _pastas_de_execucao() -> list:
+    """As pastas de execução existentes na raiz configurada para o teste."""
+    raiz = pasta_execucoes()
+    return [p for p in raiz.iterdir() if p.is_dir()] if raiz.is_dir() else []
+
+
+def _insumos_no_disco() -> list:
+    """Todo arquivo de entrada (ERP ou banco) que ainda exista no disco."""
+    raiz = pasta_execucoes()
+    if not raiz.is_dir():
+        return []
+    return [
+        caminho
+        for caminho in raiz.rglob("*")
+        if caminho.is_file() and caminho.parent.name in {"erp", "banco"}
+    ]
+
+
+def test_insumos_sao_apagados_apos_sucesso(cliente):
+    corpo = _enviar(cliente).json()
+
+    assert _insumos_no_disco() == []
+    # A pasta da execução continua de pé, porque o resultado ainda está nela.
+    resultado = pasta_execucoes() / corpo["runId"] / "Resultado.xlsx"
+    assert resultado.is_file()
+
+
+def test_resultado_e_preservado_e_download_continua_funcionando(cliente):
+    corpo = _enviar(cliente).json()
+
+    resposta = cliente.get(corpo["downloadUrl"])
+
+    assert resposta.status_code == 200
+    assert resposta.content.startswith(b"PK")
+    # Baixar não consome o arquivo: um segundo download precisa funcionar.
+    assert cliente.get(corpo["downloadUrl"]).status_code == 200
+
+
+def test_insumos_sao_apagados_apos_erro(cliente):
+    resposta = _enviar(
+        cliente, erp=("quebrado.xlsx", b"isto nao e um xlsx", MIME_EXCEL)
+    )
+
+    assert resposta.status_code == 500
+    # Nem os insumos nem a pasta da execução podem sobrar quando falha:
+    # sem Resultado.xlsx, não há nada a preservar.
+    assert _insumos_no_disco() == []
+    assert _pastas_de_execucao() == []
+
+
+def test_uma_execucao_nao_acessa_o_resultado_de_outra(cliente):
+    outro_erp = _excel_bytes(
+        [{"Data de Confirmacao": "20/07/2026", "Valor": 55.5, "Favorecido": "Outro fornecedor"}]
+    )
+    outro_banco = _excel_bytes(
+        [{"Data": "20/07/2026", "Valor": -55.5, "Historico": "Outro fornecedor"}]
+    )
+
+    primeira = _enviar(cliente).json()
+    segunda = _enviar(
+        cliente,
+        erp=("outro.xlsx", outro_erp, MIME_EXCEL),
+        banco=("outro_banco.xlsx", outro_banco, MIME_EXCEL),
+    ).json()
+
+    assert primeira["runId"] != segunda["runId"]
+
+    conteudo_primeira = cliente.get(primeira["downloadUrl"]).content
+    conteudo_segunda = cliente.get(segunda["downloadUrl"]).content
+
+    # Cada download traz o resultado da sua própria execução.
+    assert conteudo_primeira != conteudo_segunda
+    assert primeira["indicadores"]["totalGestao"] != segunda["indicadores"]["totalGestao"]
+
+    # Cada URL serve exclusivamente o arquivo da sua própria execução.
+    assert cliente.get(primeira["downloadUrl"]).content == conteudo_primeira
+    assert cliente.get(segunda["downloadUrl"]).content == conteudo_segunda
+
+    # E não existe caminho forjado que alcance a pasta de outra execução: o
+    # run_id precisa ser um UUID válido, então qualquer travessia é recusada.
+    for forjado in (
+        f"..%2F{segunda['runId']}",
+        f"..%5C{segunda['runId']}",
+        f"%2E%2E%2F{segunda['runId']}",
+        f"{primeira['runId']}%2F..%2F{segunda['runId']}",
+        "..",
+        "C:%5CWindows%5Csystem32",
+    ):
+        assert cliente.get(f"/api/reconcile/{forjado}/download").status_code == 404
+
+
+def test_expiracao_remove_resultado_antigo_e_preserva_recente(cliente):
+    import os
+    import time
+
+    from api.armazenamento import limpar_execucoes_antigas
+
+    antiga = _enviar(cliente).json()
+    recente = _enviar(cliente).json()
+
+    pasta_antiga = pasta_execucoes() / antiga["runId"]
+    envelhecido = time.time() - (HORAS_RETENCAO_PADRAO + 1) * 3600
+    os.utime(pasta_antiga, (envelhecido, envelhecido))
+
+    assert limpar_execucoes_antigas() == 1
+
+    assert cliente.get(antiga["downloadUrl"]).status_code == 404
+    assert cliente.get(recente["downloadUrl"]).status_code == 200
+
+
+def test_retencao_local_e_curta():
+    # Planilhas financeiras não devem ficar paradas no disco: a expiração é
+    # deliberadamente curta para o uso local.
+    assert 1 <= HORAS_RETENCAO_PADRAO <= 2
 
 
 @pytest.mark.parametrize(

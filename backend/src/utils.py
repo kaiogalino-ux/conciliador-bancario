@@ -398,21 +398,27 @@ def ler_tabela_com_cabecalho_detectado(caminho: Path, logger: logging.Logger):
 
     Retorna (df, nome_aba, df_bruto), onde `df` já usa a linha de cabeçalho detectada
     e tem nomes de coluna limpos (sem espaços extras).
+
+    O `with` garante que o arquivo seja fechado mesmo quando o cabeçalho não é
+    reconhecido e a leitura termina em erro. Sem isso, o Windows mantém o
+    arquivo bloqueado depois da leitura e ele não pode ser apagado — o que
+    impedia a interface web de remover os arquivos enviados pelo usuário.
     """
-    planilha = pd.ExcelFile(caminho)
-    nome_aba = planilha.sheet_names[0]
-    df_bruto = planilha.parse(nome_aba, header=None)
+    with pd.ExcelFile(caminho) as planilha:
+        nome_aba = planilha.sheet_names[0]
+        df_bruto = planilha.parse(nome_aba, header=None)
 
-    linha_cabecalho = detectar_linha_cabecalho(df_bruto)
-    if linha_cabecalho is None:
-        reportar_diagnostico_leitura(caminho, nome_aba, df_bruto, [], logger)
-        raise ValueError(
-            f"Não foi possível localizar uma linha de cabeçalho reconhecível nas primeiras "
-            f"{LINHAS_MAX_PROCURA_CABECALHO} linhas de '{caminho.name}'. Veja o diagnóstico acima (também "
-            f"disponível em logs/) para mapear as colunas manualmente."
-        )
+        linha_cabecalho = detectar_linha_cabecalho(df_bruto)
+        if linha_cabecalho is None:
+            reportar_diagnostico_leitura(caminho, nome_aba, df_bruto, [], logger)
+            raise ValueError(
+                f"Não foi possível localizar uma linha de cabeçalho reconhecível nas primeiras "
+                f"{LINHAS_MAX_PROCURA_CABECALHO} linhas de '{caminho.name}'. Veja o diagnóstico acima (também "
+                f"disponível em logs/) para mapear as colunas manualmente."
+            )
 
-    df = planilha.parse(nome_aba, header=linha_cabecalho)
+        df = planilha.parse(nome_aba, header=linha_cabecalho)
+
     df.columns = [str(coluna).strip() for coluna in df.columns]
 
     return df.reset_index(drop=True), nome_aba, df_bruto
