@@ -7,15 +7,19 @@ Nenhuma regra de conciliação é implementada nesta camada de apresentação.
 from __future__ import annotations
 
 import base64
+import contextlib
 import html
+import logging
 import os
 import re
+from collections import deque
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import streamlit as st
 
+from src.logger import obter_logger
 from src.web_runner import executar_conciliacao_web
 
 
@@ -29,6 +33,12 @@ PASTA_RUNTIME = Path(
 CSS_PATH = RAIZ_PROJETO / "streamlit_ui" / "styles.css"
 LIMITE_ARQUIVO_BYTES = 30 * 1024 * 1024
 PAGE_SIZE_PENDENCIAS = 8
+
+# Logger que `executar_conciliacao_web` usa (ver src/web_runner.py). A captura
+# abaixo só o observa — nunca altera a configuração de log do projeto, então o
+# arquivo diário em backend/logs/ continua sendo gravado normalmente.
+NOME_LOGGER_PIPELINE = "conciliador_web"
+LIMITE_LINHAS_LOG = 2000
 
 EXTENSOES_ERP = {".xlsx", ".xls"}
 EXTENSOES_BANCO = {".ofx", ".xlsx", ".xls"}
@@ -95,12 +105,65 @@ COR_METRIC_REVIEW = "#855500"
 COR_METRIC_DANGER = "#a3292e"
 
 
+class _CapturaDeLog(logging.Handler):
+    """Guarda em memória as linhas de log de uma única execução.
+
+    O ``deque`` com ``maxlen`` limita o consumo de memória: numa execução muito
+    longa, as linhas mais antigas são descartadas em vez de crescer sem fim.
+    """
+
+    def __init__(self, limite: int = LIMITE_LINHAS_LOG) -> None:
+        super().__init__()
+        self.linhas: deque[str] = deque(maxlen=limite)
+        self.setFormatter(
+            logging.Formatter(
+                "%(asctime)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+
+    def emit(self, registro: logging.LogRecord) -> None:
+        try:
+            self.linhas.append(self.format(registro))
+        except Exception:  # noqa: BLE001 — log nunca pode derrubar a execução.
+            pass
+
+
+@contextlib.contextmanager
+def _capturar_log_da_execucao():
+    """Observa o logger do pipeline apenas enquanto a conciliação roda.
+
+    O handler é anexado na entrada e removido no ``finally``, mesmo se a
+    conciliação falhar. Antes de anexar, qualquer captura remanescente de uma
+    execução anterior é retirada — assim reruns do Streamlit nunca acumulam
+    handlers duplicados nem misturam o log de duas execuções.
+
+    Deixa o próprio ``src.logger`` configurar o logger antes de observá-lo:
+    ``obter_logger`` retorna adiantado quando o logger já tem handlers, então
+    anexar a captura primeiro impediria o ``setLevel(INFO)`` e as mensagens
+    seriam descartadas pelo nível herdado da raiz. Assim o arquivo diário em
+    ``backend/logs/`` também continua sendo gravado normalmente.
+    """
+    logger = obter_logger(NOME_LOGGER_PIPELINE)
+
+    for handler in [h for h in logger.handlers if isinstance(h, _CapturaDeLog)]:
+        logger.removeHandler(handler)
+
+    captura = _CapturaDeLog()
+    logger.addHandler(captura)
+    try:
+        yield captura
+    finally:
+        logger.removeHandler(captura)
+
+
 def _inicializar_estado() -> None:
     valores_iniciais = {
         "resultado_conciliacao": None,
         "resultado_excel": None,
         "assinatura_processada": None,
         "nome_resultado": "Resultado.xlsx",
+        "log_execucao": [],
     }
     for chave, valor in valores_iniciais.items():
         if chave not in st.session_state:
@@ -444,11 +507,21 @@ def _executar(arquivo_erp, arquivo_banco) -> None:
     _salvar_upload(arquivo_erp, pasta_erp, "erp")
     _salvar_upload(arquivo_banco, pasta_banco, "banco")
 
-    resposta = executar_conciliacao_web(
-        pasta_erp,
-        pasta_banco,
-        caminho_resultado,
-    )
+    # Zera o log antes de começar: o expander só mostra a execução atual.
+    st.session_state.log_execucao = []
+
+    with _capturar_log_da_execucao() as captura:
+        try:
+            resposta = executar_conciliacao_web(
+                pasta_erp,
+                pasta_banco,
+                caminho_resultado,
+            )
+        finally:
+            # Preserva o log inclusive quando a conciliação falha — é
+            # justamente aí que ele mais serve para diagnóstico.
+            st.session_state.log_execucao = list(captura.linhas)
+
     st.session_state.resultado_conciliacao = resposta
     st.session_state.resultado_excel = caminho_resultado.read_bytes()
     st.session_state.assinatura_processada = _assinatura_arquivos(
@@ -499,6 +572,20 @@ def _analysis_heading_html(resultado: dict | None) -> str:
       {resumo}
     </div>
     """
+
+
+def _renderizar_log_execucao() -> None:
+    """Mostra o log da execução atual, para auditoria e diagnóstico.
+
+    Fechado por padrão: é informação de apoio, não o resultado. O mesmo
+    conteúdo continua sendo gravado no arquivo diário de ``backend/logs/``.
+    """
+    linhas = st.session_state.get("log_execucao") or []
+    if not linhas:
+        return
+
+    with st.expander(f"Log da execução ({len(linhas)} linhas)", expanded=False):
+        st.code("\n".join(linhas), language=None)
 
 
 def _renderizar_resultado(resultado: dict | None) -> None:
@@ -631,6 +718,8 @@ def _renderizar_resultado(resultado: dict | None) -> None:
                 </div>
                 """
             )
+
+    _renderizar_log_execucao()
 
 
 st.set_page_config(

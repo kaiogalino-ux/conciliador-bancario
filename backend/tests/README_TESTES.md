@@ -17,11 +17,12 @@ exceção deve ser criada para "consertar" o teste** (mesma diretriz de
 
 ## Como rodar os testes
 
-Instale as dependências (inclui o `pytest`) e rode a partir da raiz do
-projeto:
+Instale as dependências (o `pytest` está em `requirements-dev.txt`, não em
+`requirements.txt`) e rode a partir da pasta `backend/`:
 
-```bash
-pip install -r requirements.txt
+```powershell
+pip install -r backend\requirements-dev.txt
+cd backend
 pytest
 ```
 

@@ -1,41 +1,50 @@
 # Estado atual do projeto — Conciliador Bancário GestãoClick
 
-> Snapshot do projeto no momento em que foi escrito. Reflete o comportamento real do código em `src/` nesta data. Se o código evoluir, este arquivo deve ser atualizado junto — ele não se atualiza sozinho.
+> Snapshot do projeto no momento em que foi escrito. Reflete o comportamento real do código em `backend/src/` nesta data. Se o código evoluir, este arquivo deve ser atualizado junto — ele não se atualiza sozinho. Ao longo do texto, caminhos como `src/conciliador.py` e `tests/` são relativos a `backend/`.
 
 ## Objetivo do projeto
 
-Automatizar a conciliação bancária entre o Excel exportado do ERP GestãoClick (contas a pagar) e o extrato bancário de 1 banco (OFX ou Excel), rodando por terminal/VS Code, sem interface gráfica.
+Automatizar a conciliação bancária entre o Excel exportado do ERP GestãoClick (contas a pagar) e o extrato bancário de 1 banco (OFX ou Excel), rodando por terminal/VS Code ou por uma das duas interfaces web locais.
 
 ## Estrutura de pastas
 
+Reorganizada em 2026-07-30 (ver `HISTORICO_DECISOES.md`): o Python passou para `backend/` e a interface Next.js para `frontend/`.
+
 ```
 Conciliador_Bancario/
-├── dados/
-│   ├── ERP/          Excel exportado do GestãoClick
-│   └── Banco/         Extrato bancário (.ofx, .xlsx ou .xls)
-├── resultado/
-│   └── Resultado.xlsx  gerado a cada execução (abas "Resumo" e "Base Detalhada", 2026-07-23)
-├── logs/                um arquivo de log por dia
-├── src/                 código-fonte
-├── tests/                testes automáticos (pytest)
+├── backend/                 todo o Python
+│   ├── dados/
+│   │   ├── ERP/          Excel exportado do GestãoClick
+│   │   └── Banco/         Extrato bancário (.ofx, .xlsx ou .xls)
+│   ├── resultado/
+│   │   └── Resultado.xlsx  gerado a cada execução (abas "Resumo" e "Base Detalhada", 2026-07-23)
+│   ├── logs/                um arquivo de log por dia
+│   ├── src/                 código-fonte das regras de conciliação
+│   ├── api/                 camada HTTP (FastAPI) — só transporte
+│   ├── tests/                testes automáticos (pytest)
+│   ├── main.py
+│   ├── streamlit_app.py      interface Streamlit local
+│   ├── requirements.txt        só as dependências do servidor
+│   └── requirements-dev.txt    as do servidor + pytest e streamlit
+├── frontend/                interface web Next.js
 ├── docs/                 este arquivo e os demais documentos de apoio
-├── main.py
-├── requirements.txt
 ├── README.md
 └── CLAUDE.md
 ```
 
 ## Comando principal para executar
 
-```
+```powershell
+cd backend
 python main.py
 ```
 
-Lê o Excel mais recente de `dados/ERP/`, o extrato mais recente de `dados/Banco/`, concilia e grava `resultado/Resultado.xlsx`.
+Lê o Excel mais recente de `backend/dados/ERP/`, o extrato mais recente de `backend/dados/Banco/`, concilia e grava `backend/resultado/Resultado.xlsx`.
 
 Para rodar os testes automáticos:
 
-```
+```powershell
+cd backend
 pytest
 ```
 
@@ -244,7 +253,7 @@ Arquivos das regras determinísticas (um por regra do CLAUDE.md):
 - **Duplicidade equivalente individual** (NF diferente, mesmo fornecedor): já apareceu em execução real (4 ocorrências no arquivo de jan-mai/2026 processado em 2026-07-10) — regra confirmada em produção, não é mais só teoria sintética.
 - A leitura bancária em Excel está coberta por `tests/test_leitor_banco_excel.py`: cabeçalho deslocado, nomes alternativos, valores brasileiros, filtro de período e erro de colunas obrigatórias.
 - A busca de combinação (`_buscar_combinacao_unica_centavos`, meet-in-the-middle) é segura e rápida até 40 candidatos por grupo; acima disso, o grupo é tratado como "grupo grande demais para busca automática" em vez de arriscar uma busca incompleta ou lenta — ainda não apareceu um caso real com mais de 40 candidatos num único grupo.
-- `requirements.txt` está em texto simples e fixa as versões diretas validadas no ambiente virtual.
+- As dependências estão em texto simples, com versões fixas validadas no ambiente virtual, divididas em `backend/requirements.txt` (só o servidor) e `backend/requirements-dev.txt` (as do servidor + pytest, httpx e streamlit — é o que se instala localmente).
 
 ## O que o Claude nunca deve fazer em futuras alterações
 
