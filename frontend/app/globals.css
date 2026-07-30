@@ -237,8 +237,10 @@ svg {
   box-shadow: 0 0 0 4px rgba(49, 165, 108, 0.12);
 }
 
-/* Deixa explícito que nada sai desta máquina e que o sistema depende do
-   servidor local estar aberto. */
+/* No modo local, deixa explícito que nada sai desta máquina e que o sistema
+   depende do servidor local estar aberto. O verde vale só para esse caso — a
+   variante --hospedado abaixo troca a cor justamente porque a mensagem passa a
+   ser um alerta, não uma garantia. */
 .local-notice {
   max-width: 560px;
   margin-top: 18px;
@@ -262,6 +264,39 @@ svg {
   font-weight: 750;
   letter-spacing: 0.045em;
   text-transform: uppercase;
+}
+
+/* Variantes do modo hospedado. Reaproveitam a paleta âmbar que a interface já
+   usa em "Revisão Manual" (--review), em vez de introduzir uma cor nova: o
+   aviso pede atenção do usuário (arquivos saem da máquina, use só arquivo
+   sintético), então o verde de "tudo certo" seria enganoso. */
+.local-badge--hospedado {
+  color: var(--review);
+  border-color: var(--review-border);
+  background: var(--review-soft);
+}
+
+.local-badge--hospedado i {
+  background: var(--review-border);
+  box-shadow: 0 0 0 4px rgba(217, 155, 24, 0.16);
+}
+
+.local-notice--hospedado {
+  border-color: var(--review-border);
+  background: var(--review-soft);
+}
+
+.local-notice--hospedado strong {
+  color: var(--review);
+}
+
+.local-notice__aviso {
+  display: block;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(217, 155, 24, 0.45);
+  color: var(--review);
+  font-weight: 700;
 }
 
 main {

@@ -8,13 +8,21 @@ O projeto é dividido em duas metades independentes:
 - **`backend/`** — todo o Python: as regras de conciliação, a linha de comando, a interface Streamlit local e a API HTTP.
 - **`frontend/`** — a interface web em Next.js. Não executa Python; conversa com o backend por rede.
 
-> ### ⚠️ O sistema funciona apenas localmente
+> ### ⚠️ Dois modos de execução — saiba em qual você está
 >
-> Não há nenhuma hospedagem: **tudo roda neste computador**. Os dois servidores escutam somente em `127.0.0.1` e nenhum arquivo sai da máquina.
+> O mesmo frontend atende dois modos, e o que muda entre eles é **para onde os arquivos vão**. Quem decide é a variável `NEXT_PUBLIC_API_URL`:
 >
-> - O computador precisa **permanecer ligado** e os servidores **abertos** durante o uso. Ao fechar as janelas, o sistema para de responder.
+> | | `NEXT_PUBLIC_API_URL` | Onde os arquivos são processados |
+> |---|---|---|
+> | **Modo local** | `http://localhost:8000` (ou `127.0.0.1`) | Neste computador. Nenhum arquivo sai da máquina. |
+> | **Modo hospedado** | a URL do backend no Render | Num servidor remoto. Os arquivos **saem** da máquina. |
+>
+> A página informa o modo ativo no badge do cabeçalho ("Ambiente local" ou "Ambiente de testes hospedado") e na mensagem abaixo do título. Ela nunca afirma processamento local quando a URL configurada é remota.
+>
 > - **Nunca envie arquivos financeiros para o GitHub.** As pastas `backend/dados/`, `backend/logs/`, `backend/resultado/` e `backend/.web-runtime/` estão no `.gitignore` justamente por isso — mas confira o `git status` antes de qualquer commit.
 > - O `backend/.env` contém credenciais reais e também nunca é versionado.
+>
+> Detalhes de cada modo em [Execução local](#execução-local) e [Execução hospedada](#execução-hospedada-vercel--render).
 
 ## Estrutura do projeto
 
@@ -42,7 +50,7 @@ backend/
   main.py             -> ponto de entrada da linha de comando
   streamlit_app.py    -> interface local em Streamlit
   streamlit_ui/       -> estilos visuais da interface Streamlit
-  Dockerfile              -> preparado para uma hospedagem futura; não é usado localmente
+  Dockerfile              -> imagem usada pelo Render no modo hospedado
   requirements.txt        -> só as dependências do servidor
   requirements-dev.txt    -> as do servidor + pytest e streamlit (é o que você instala)
 frontend/
@@ -50,6 +58,7 @@ frontend/
   lib/api.ts          -> único ponto que fala com o backend
   package.json
 docs/                 -> documentação de estado do projeto, regras e histórico de decisões
+render.yaml           -> blueprint do backend no Render (modo hospedado)
 iniciar_conciliador.ps1 -> sobe backend + frontend e abre o navegador
 parar_conciliador.ps1   -> encerra apenas os processos deste projeto
 ```
@@ -126,7 +135,9 @@ NEXT_PUBLIC_API_TOKEN=
 
 > Tudo que começa com `NEXT_PUBLIC_` vai para o JavaScript enviado ao navegador e é visível. Nunca coloque um segredo real ali.
 
-## Como iniciar
+## Execução local
+
+Este é o modo em que **nenhum arquivo sai do computador**: os dois servidores escutam somente em `127.0.0.1`, e o computador precisa **permanecer ligado** com as janelas **abertas** durante o uso. Ao fechar as janelas, o sistema para de responder.
 
 ### Modo simples (recomendado)
 
@@ -174,6 +185,53 @@ O navegador envia os arquivos **direto** para o backend — não há proxy no Ne
 O script encerra **apenas** os processos deste projeto, identificados pelos PIDs registrados na inicialização e por quem está escutando nas portas 8000 e 3000 — sempre conferindo antes que o processo pertence a esta pasta. Um servidor de outra pessoa na mesma porta é reportado, nunca encerrado. Nenhum `taskkill /IM python.exe` ou `/IM node.exe` é usado.
 
 Fechar as duas janelas dos servidores também funciona.
+
+## Execução hospedada (Vercel + Render)
+
+Versão de **testes**, acessível pela internet, sem depender de nenhum servidor aberto na sua máquina. São dois serviços, porque a Vercel não executa Python:
+
+| Metade | Host | O que roda | Configuração |
+|---|---|---|---|
+| `frontend/` | **Vercel** | só HTML/JS estático — o `next build` não gera nenhuma função | Root Directory `frontend` |
+| `backend/` | **Render** | a API HTTP em container Docker | [`render.yaml`](render.yaml), contexto `backend/` |
+
+O navegador chama a API do Render **direto**, sem proxy na Vercel (decisão registrada em [`docs/HISTORICO_DECISOES.md`](docs/HISTORICO_DECISOES.md)) — por isso o limite de 4,5 MB por request e o timeout de função da Vercel não se aplicam aos arquivos.
+
+### Variáveis que ligam os dois lados
+
+Os quatro valores têm que ser coerentes entre si, ou o navegador bloqueia a chamada no CORS:
+
+| Onde | Variável | Valor |
+|---|---|---|
+| Vercel | `NEXT_PUBLIC_API_URL` | a URL pública do serviço no Render |
+| Vercel | `NEXT_PUBLIC_API_TOKEN` | o mesmo valor de `API_TOKEN` |
+| Render | `CORS_ORIGINS` | o domínio da Vercel (ex.: `https://seu-app.vercel.app`) |
+| Render | `API_TOKEN` | token compartilhado, igual ao do frontend |
+
+`NEXT_PUBLIC_API_URL` é lida **no build**, não em runtime: depois de alterá-la é preciso republicar o frontend para o valor novo valer.
+
+### O que muda para quem usa
+
+- **Os arquivos são enviados ao backend.** No modo hospedado, o ERP e o extrato saem do seu computador e são processados no servidor do Render. A interface avisa isso no badge "Ambiente de testes hospedado" e na mensagem "Modo hospedado".
+- **Baixe o `Resultado.xlsx` ao final de cada execução.** O ERP e o extrato são apagados do servidor assim que a conciliação termina; só o resultado fica, e apenas até a limpeza das execuções antigas. Não existe histórico no servidor — se você fechar a aba sem baixar, a execução se perde e é preciso rodar de novo.
+- **Nesta fase de testes, use apenas arquivos sintéticos ou previamente autorizados.** Ver a limitação de autenticação abaixo.
+
+### Autenticação: o que existe hoje
+
+**Não existe autenticação individual.** Não há login, usuário nem senha, e nenhuma separação por pessoa: qualquer um que tenha a URL e o token consegue rodar uma conciliação.
+
+O `API_TOKEN` é um **token compartilhado**, único para todos. Ele serve para barrar uso casual da URL pública — não identifica quem enviou o quê. Como o frontend precisa dele no navegador, ele vai no JavaScript como `NEXT_PUBLIC_API_TOKEN` e **é visível** para qualquer pessoa que abra o código da página.
+
+É exatamente por isso que a recomendação de arquivos sintéticos vale enquanto a hospedagem estiver nesta fase.
+
+### Limitações do plano gratuito do Render
+
+O [`render.yaml`](render.yaml) usa `plan: free`, que tem dois limites relevantes:
+
+- **Hibernação:** o serviço dorme após ~15 minutos sem uso. A primeira conciliação depois disso espera o container subir (na ordem de ~50s) antes de começar. Não é erro — é cold start.
+- **512 MB de RAM:** a conciliação carrega as duas planilhas com `pandas` e gera o `.xlsx` com `openpyxl`. A interface aceita até 30 MB por arquivo, e um par de arquivos grandes pode estourar esse limite e derrubar o container no meio da execução. Se isso acontecer com os seus relatórios reais, o caminho é um plano pago — não há ajuste de regra que resolva.
+
+Há ainda um limite de horas de execução por mês no free tier, que a hibernação ajuda a economizar.
 
 ## Testes automáticos
 
