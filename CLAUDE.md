@@ -13,26 +13,48 @@ O projeto deve ser evoluído aos poucos. Nunca recriar do zero sem autorização
 
 ## Estrutura do projeto
 
+Revisada em 2026-07-30 (ver `docs/HISTORICO_DECISOES.md`): o projeto foi separado em **backend** (todo o Python) e **frontend** (a interface Next.js publicada na Vercel), porque a Vercel não executa Python. Antes dessa data, `src/`, `main.py`, `tests/` e `app/` ficavam todos na raiz.
+
 A estrutura correta é:
 
 ```text
 Conciliador_Bancario/
-├── dados/
-│   ├── ERP/          -> Excel exportado do GestãoClick
-│   └── Banco/         -> Extrato bancário (.ofx, .xlsx ou .xls)
-├── resultado/
-│   └── Resultado.xlsx -> gerado a cada execução (2 abas — ver "Abas do Resultado.xlsx")
-├── logs/               -> um arquivo de log por dia
-├── src/                -> código-fonte (ver módulos abaixo)
-├── tests/              -> testes automáticos (pytest) que protegem as regras deste arquivo
-├── docs/               -> documentação de estado, regras e histórico de decisões
-├── main.py             -> ponto de entrada
-├── requirements.txt
+├── backend/                -> todo o Python (roda em container Docker)
+│   ├── dados/
+│   │   ├── ERP/            -> Excel exportado do GestãoClick (uso local/CLI)
+│   │   └── Banco/          -> Extrato bancário (.ofx, .xlsx ou .xls)
+│   ├── resultado/
+│   │   └── Resultado.xlsx  -> gerado a cada execução (2 abas — ver "Abas do Resultado.xlsx")
+│   ├── logs/               -> um arquivo de log por dia
+│   ├── src/                -> código-fonte da conciliação (ver módulos abaixo)
+│   ├── api/                -> camada HTTP (ver módulos abaixo) — só transporte
+│   ├── tests/              -> testes automáticos (pytest) que protegem as regras deste arquivo
+│   ├── main.py             -> ponto de entrada da linha de comando
+│   ├── streamlit_app.py    -> interface Streamlit local (mantida em paralelo)
+│   ├── streamlit_ui/       -> CSS da interface Streamlit
+│   ├── requirements.txt    -> dependências do servidor (é o que entra no Docker)
+│   ├── requirements-dev.txt-> as do servidor + pytest e streamlit
+│   ├── Dockerfile
+│   └── .env.example
+├── frontend/               -> interface web Next.js (publicada na Vercel)
+│   ├── app/                -> páginas e estilos (sem nenhuma API route)
+│   ├── lib/api.ts          -> único ponto que fala com o backend
+│   ├── package.json
+│   └── .env.local.example
+├── docs/                   -> documentação de estado, regras e histórico de decisões
 ├── README.md
-└── CLAUDE.md           -> este arquivo
+└── CLAUDE.md               -> este arquivo
 ```
 
-Módulos de `src/`:
+Comandos (sempre a partir da pasta certa):
+
+- conciliação por linha de comando: `cd backend && python main.py`;
+- testes: `cd backend && pytest`;
+- servidor da interface web: `cd backend && uvicorn api.main:app --reload`;
+- interface Streamlit: `cd backend && streamlit run streamlit_app.py`;
+- frontend: `cd frontend && npm run dev`.
+
+Módulos de `backend/src/`:
 
 - `leitor_erp.py` — lê o Excel mais recente do ERP e define a Data ERP Usada por linha;
 - `leitor_banco.py` — lê o extrato mais recente do banco (OFX ou Excel), filtra débitos e período;
@@ -43,7 +65,13 @@ Módulos de `src/`:
 - `logger.py` — configuração do log;
 - `ia_config.py` — configuração da camada de IA, lida exclusivamente de variável de ambiente (ver "Camada de IA" abaixo);
 - `ia_revisor.py` — lógica pura (sem rede) da camada de IA: elegibilidade, seleção de candidatos, revalidação, resolução de conflitos e aplicação;
-- `ia_cliente_groq.py` — único módulo que fala com a API da Groq (modelo `openai/gpt-oss-120b`), isolado para o resto do projeto continuar funcionando sem o pacote `groq` instalado quando a IA está desativada.
+- `ia_cliente_groq.py` — único módulo que fala com a API da Groq (modelo `openai/gpt-oss-120b`), isolado para o resto do projeto continuar funcionando sem o pacote `groq` instalado quando a IA está desativada;
+- `web_runner.py` — adaptador entre as interfaces (API HTTP e Streamlit) e o pipeline: chama os mesmos leitores/conciliador/exportador do `main.py` e transforma o resultado em JSON. Não contém nenhuma regra própria.
+
+Módulos de `backend/api/` (camada HTTP — **nunca** pode conter regra de conciliação):
+
+- `main.py` — as rotas `POST /api/reconcile`, `GET /api/reconcile/{runId}/download` e `GET /health`, mais CORS e o token compartilhado. Só recebe arquivos, chama `executar_conciliacao_web` e devolve o que ele produziu;
+- `armazenamento.py` — grava cada upload numa pasta isolada por execução (é o formato que os leitores esperam), sanitiza nomes de arquivo, valida formato/tamanho e apaga execuções antigas.
 
 Esta estrutura não deve ser alterada sem autorização — o projeto deve apenas evoluir a partir daqui.
 
@@ -59,7 +87,9 @@ Antes de modificar qualquer arquivo, verificar:
 - se a alteração pode afetar a conciliação por lote NET EMP (`conciliador.py`);
 - se a alteração pode afetar o `Resultado.xlsx` (`exportador.py`, colunas obrigatórias).
 
-Depois de qualquer alteração em `src/`, rodar `pytest` (pasta `tests/`) antes de considerar a tarefa concluída — os testes existem exatamente para pegar regressão nessas regras.
+Depois de qualquer alteração em `backend/src/`, rodar `cd backend && pytest` antes de considerar a tarefa concluída — os testes existem exatamente para pegar regressão nessas regras.
+
+A camada HTTP (`backend/api/`) e o frontend (`frontend/`) **nunca** podem conter regra de conciliação: são só transporte e apresentação. Uma correção de regra sempre é feita em `backend/src/`.
 
 Nunca corrigir um problema criando exceção específica por fornecedor.
 
@@ -311,7 +341,9 @@ Ver `docs/HISTORICO_DECISOES.md` para o histórico completo da decisão. Resumo 
 
 ## Testes automáticos
 
-A pasta `tests/` (pytest) protege as regras deste arquivo com testes que fabricam dados sintéticos e chamam `conciliar()`/`selecionar_data_prioritaria()`/`ler_banco()` diretamente (sem depender dos arquivos reais em `dados/`). Ver `tests/README_TESTES.md` para detalhes de como rodar e o que cada teste cobre. Rodar `pytest` sempre que alterar `src/` é parte obrigatória do fluxo de mudança.
+A pasta `backend/tests/` (pytest) protege as regras deste arquivo com testes que fabricam dados sintéticos e chamam `conciliar()`/`selecionar_data_prioritaria()`/`ler_banco()` diretamente (sem depender dos arquivos reais em `dados/`). Ver `backend/tests/README_TESTES.md` para detalhes de como rodar e o que cada teste cobre. Rodar `cd backend && pytest` sempre que alterar `backend/src/` é parte obrigatória do fluxo de mudança.
+
+`tests/test_api.py` cobre a camada HTTP (contrato JSON, validação de upload, isolamento entre execuções, token e limpeza de execuções antigas) — sem duplicar nenhuma regra de conciliação, que continua coberta pelos testes de `src/`.
 
 ## Casos de teste obrigatórios
 
@@ -351,7 +383,7 @@ Um ERP que ficaria "Não encontrado no banco" deve ser verificado contra o banco
 
 ## Checklist após executar python main.py
 
-Depois de rodar `python main.py`, o Claude deve informar:
+Depois de rodar `cd backend && python main.py`, o Claude deve informar:
 
 - se o Resultado.xlsx foi gerado;
 - quantos lançamentos foram lidos do ERP;
@@ -377,7 +409,7 @@ Se alguma regra falhar, o Claude deve:
 1. Explicar a causa provável.
 2. Indicar qual arquivo será alterado.
 3. Corrigir a regra geral.
-4. Rodar `python main.py`.
+4. Rodar `cd backend && python main.py`.
 5. Conferir se o erro foi resolvido.
-6. Rodar `pytest` para confirmar que nada mais quebrou.
+6. Rodar `cd backend && pytest` para confirmar que nada mais quebrou.
 7. Não remover regras anteriores que já estavam funcionando.

@@ -9,49 +9,12 @@ import {
   type ReactNode,
 } from "react";
 
-type Indicator = {
-  quantidade: number;
-  percentual: number;
-};
-
-type PendingItem = {
-  data: string | null;
-  origem: string;
-  favorecido: string;
-  valorGestao: number | null;
-  valorBanco: number | null;
-  status: string;
-  motivo: string;
-};
-
-type ReconciliationResult = {
-  runId: string;
-  downloadUrl: string;
-  files: {
-    erp: string;
-    bank: string;
-  };
-  periodo: {
-    inicio: string | null;
-    fim: string | null;
-  };
-  entradas: {
-    linhasGestao: number;
-    linhasBanco: number;
-  };
-  indicadores: {
-    totalGestao: number;
-    totalBanco: number;
-    conciliado: Indicator;
-    revisaoManual: Indicator;
-    somenteBanco: Indicator;
-    naoEncontradoBanco: Indicator;
-    totalLinhas: number;
-  };
-  pendentes: PendingItem[];
-  pendentesTotal: number;
-  pendentesExibidos: number;
-};
+import {
+  baixarResultado,
+  enviarConciliacao,
+  type PendingItem,
+  type ReconciliationResult,
+} from "../lib/api";
 
 type UploadKind = "erp" | "bank";
 
@@ -319,6 +282,7 @@ export default function Home() {
   const [erpFile, setErpFile] = useState<File | null>(null);
   const [bankFile, setBankFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [processingStep, setProcessingStep] = useState(0);
   const [formError, setFormError] = useState("");
   const [result, setResult] = useState<ReconciliationResult | null>(null);
@@ -385,21 +349,7 @@ export default function Home() {
     setResult(null);
 
     try {
-      const formData = new FormData();
-      formData.append("erp", erpFile);
-      formData.append("bank", bankFile);
-      const response = await fetch("/api/reconcile", {
-        method: "POST",
-        body: formData,
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          payload.detail
-            ? `${payload.error} ${payload.detail}`
-            : payload.error || "Não foi possível executar a conciliação."
-        );
-      }
+      const payload = await enviarConciliacao(erpFile, bankFile);
       setResult(payload);
       window.setTimeout(() => {
         document
@@ -414,6 +364,24 @@ export default function Home() {
       );
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const downloadResult = async () => {
+    if (!result) return;
+
+    setFormError("");
+    setIsDownloading(true);
+    try {
+      await baixarResultado(result.downloadUrl);
+    } catch (error) {
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível baixar a planilha."
+      );
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -643,14 +611,15 @@ export default function Home() {
               <p>{periodLabel}</p>
             </div>
             {result && (
-              <a
+              <button
+                type="button"
                 className="download-button"
-                href={result.downloadUrl}
-                download
+                onClick={downloadResult}
+                disabled={isDownloading}
               >
                 <DownloadIcon />
-                Baixar planilha final
-              </a>
+                {isDownloading ? "Preparando planilha…" : "Baixar planilha final"}
+              </button>
             )}
           </div>
 

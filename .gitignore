@@ -1,29 +1,42 @@
 # Configuração local da camada de IA (contém a chave de API real) — nunca
-# deve ser versionada. Ver .env.example para o template.
+# deve ser versionada. Ver backend/.env.example para o template.
 .env
+backend/.env
 
 # Ambiente virtual e artefatos Python.
 .venv/
 __pycache__/
 *.pyc
+
+# Artefatos do frontend Next.js.
 node_modules/
+frontend/node_modules/
 .next/
+frontend/.next/
+*.tsbuildinfo
 .open-next/
 .wrangler/
+frontend/.env.local
 nexa-18-site.tar.gz
 .openai/*.png
 .openai/*.log
 .sites-source-temp/
+
+# Execuções da interface web (uploads e Resultado.xlsx temporários).
 .web-runtime/
+backend/.web-runtime/
 
 # Saídas geradas a cada execução (ver CLAUDE.md) — não fazem parte do
 # código-fonte.
 logs/
+backend/logs/
 resultado/
+backend/resultado/
 
 # Dados reais de ERP/banco (contêm informações financeiras da empresa) —
 # nunca devem ser versionados.
 dados/
+backend/dados/
 
 # Cache de testes.
 .pytest_cache/
