@@ -5,8 +5,16 @@ Automatiza a conciliação entre os lançamentos exportados do sistema ERP
 
 O projeto é dividido em duas metades independentes:
 
-- **`backend/`** — todo o Python: as regras de conciliação, a linha de comando, a interface Streamlit local e a API HTTP. Roda em container Docker.
-- **`frontend/`** — a interface web em Next.js, publicada na Vercel. Não executa Python; conversa com o backend por rede.
+- **`backend/`** — todo o Python: as regras de conciliação, a linha de comando, a interface Streamlit local e a API HTTP.
+- **`frontend/`** — a interface web em Next.js. Não executa Python; conversa com o backend por rede.
+
+> ### ⚠️ O sistema funciona apenas localmente
+>
+> Não há nenhuma hospedagem: **tudo roda neste computador**. Os dois servidores escutam somente em `127.0.0.1` e nenhum arquivo sai da máquina.
+>
+> - O computador precisa **permanecer ligado** e os servidores **abertos** durante o uso. Ao fechar as janelas, o sistema para de responder.
+> - **Nunca envie arquivos financeiros para o GitHub.** As pastas `backend/dados/`, `backend/logs/`, `backend/resultado/` e `backend/.web-runtime/` estão no `.gitignore` justamente por isso — mas confira o `git status` antes de qualquer commit.
+> - O `backend/.env` contém credenciais reais e também nunca é versionado.
 
 ## Estrutura do projeto
 
@@ -34,77 +42,174 @@ backend/
   main.py             -> ponto de entrada da linha de comando
   streamlit_app.py    -> interface local em Streamlit
   streamlit_ui/       -> estilos visuais da interface Streamlit
-  Dockerfile
-  requirements.txt        -> dependências do servidor (é o que entra no Docker)
-  requirements-dev.txt    -> as do servidor + pytest e streamlit
+  Dockerfile              -> preparado para uma hospedagem futura; não é usado localmente
+  requirements.txt        -> só as dependências do servidor
+  requirements-dev.txt    -> as do servidor + pytest e streamlit (é o que você instala)
 frontend/
   app/                -> páginas e estilos (nenhuma API route)
   lib/api.ts          -> único ponto que fala com o backend
   package.json
 docs/                 -> documentação de estado do projeto, regras e histórico de decisões
+iniciar_conciliador.ps1 -> sobe backend + frontend e abre o navegador
+parar_conciliador.ps1   -> encerra apenas os processos deste projeto
 ```
 
 Esta estrutura não deve ser alterada sem autorização — o projeto deve apenas evoluir a partir daqui. As regras completas de negócio estão em [`CLAUDE.md`](CLAUDE.md) e em [`docs/REGRAS_DE_CONCILIACAO.md`](docs/REGRAS_DE_CONCILIACAO.md).
 
-## Instalação
+## Instalação (uma vez só)
 
-Com o `.venv` ativado, a partir da raiz do projeto:
+### 1. Python e Node
 
-```powershell
-pip install -r backend/requirements-dev.txt   # servidor + testes + Streamlit
-cd frontend; npm install
-```
+| | Versão | Onde baixar | Conferir |
+|---|---|---|---|
+| Python | 3.12 ou superior | [python.org/downloads](https://www.python.org/downloads/) — marque **"Add Python to PATH"** | `python --version` |
+| Node.js | 20 LTS ou superior | [nodejs.org](https://nodejs.org/) — versão **LTS** | `node --version` |
 
-## Interface web (Next.js + API)
+### 2. Ambiente virtual do Python
 
-São dois processos. **Os dois precisam estar rodando.**
-
-1. Backend, numa janela:
-   ```powershell
-   cd backend
-   uvicorn api.main:app --reload
-   ```
-   Sobe em [http://localhost:8000](http://localhost:8000) (`/health` confirma que está no ar).
-
-2. Frontend, em outra janela:
-   ```powershell
-   cd frontend
-   copy .env.local.example .env.local   # só na primeira vez
-   npm run dev
-   ```
-   Acesse [http://localhost:3000](http://localhost:3000).
-
-3. Selecione o relatório do ERP (`.xlsx`/`.xls`) e o extrato do banco (`.ofx`/`.xlsx`/`.xls`) e clique em **Executar conciliação**. A página mostra os cinco indicadores, a tabela filtrável de pendências e o botão **Baixar planilha final**.
-
-O navegador envia os arquivos **direto** para o backend — por isso o limite de 30 MB por arquivo vale de verdade, sem esbarrar nos limites de request da Vercel.
-
-### Publicação
-
-- **Backend** — Web Service Docker no Render, com `Root Directory = backend`. Variáveis: `CORS_ORIGINS` (a URL do frontend), `API_TOKEN`, `CONCILIADOR_RUNTIME_DIR=/tmp/conciliador-execucoes`, `CONCILIADOR_LOG_DIR=/tmp/conciliador-logs`, mais as variáveis de IA (ver [`backend/.env.example`](backend/.env.example)).
-- **Frontend** — projeto na Vercel com `Root Directory = frontend`. Variáveis: `NEXT_PUBLIC_API_URL` (a URL do Render) e `NEXT_PUBLIC_API_TOKEN`.
-
-Testar a imagem antes de publicar:
+Na raiz do projeto:
 
 ```powershell
-docker build -t conciliador-api ./backend
-docker run --rm -p 8000:8000 -e CORS_ORIGINS=http://localhost:3000 conciliador-api
+python -m venv .venv
+.venv\Scripts\activate
 ```
 
-> **Sobre o `API_TOKEN`:** ele impede uso casual da API por quem descobrir a URL, mas **não é autenticação de usuário** — como o navegador chama a API diretamente, o token fica visível no JavaScript da página. Para proteção real, é preciso um login.
+O `.venv` fica **na raiz**, não dentro de `backend/`. Se o PowerShell recusar o `activate`, libere os scripts para o seu usuário:
 
-## Interface Streamlit local
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
 
-Continua disponível e usa exatamente o mesmo pipeline Python de `main.py` — os
-leitores, as regras de conciliação e o exportador não são duplicados na camada
-visual.
+### 3. Dependências do backend
+
+```powershell
+pip install -r backend\requirements-dev.txt
+```
+
+O `requirements-dev.txt` traz o servidor, o `pytest` e o Streamlit. O `requirements.txt` (só o servidor) existe para empacotamento e não é o que você usa localmente.
+
+### 4. Dependências do frontend
+
+```powershell
+cd frontend
+npm install
+cd ..
+```
+
+### 5. Arquivos de configuração
+
+Nenhum dos dois é versionado — crie-os a partir dos exemplos:
+
+```powershell
+copy backend\.env.example backend\.env
+copy frontend\.env.local.example frontend\.env.local
+```
+
+**`backend\.env`** — para uso local, basta:
+
+```ini
+CORS_ORIGINS=http://localhost:3000
+API_TOKEN=
+IA_MODO=DESATIVADA
+GROQ_API_KEY=
+```
+
+- `API_TOKEN` vazio deixa a API aberta. É aceitável aqui porque ela só escuta em `127.0.0.1`.
+- `IA_MODO=DESATIVADA` é o padrão. Para ligar a camada de IA, use `SOMBRA` ou `AUTOMATICO` e preencha `GROQ_API_KEY` (ver [`backend/.env.example`](backend/.env.example)).
+
+**`frontend\.env.local`**:
+
+```ini
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_TOKEN=
+```
+
+> Tudo que começa com `NEXT_PUBLIC_` vai para o JavaScript enviado ao navegador e é visível. Nunca coloque um segredo real ali.
+
+## Como iniciar
+
+### Modo simples (recomendado)
+
+Na raiz do projeto:
+
+```powershell
+.\iniciar_conciliador.ps1
+```
+
+O script confere o ambiente, abre uma janela para cada servidor, espera os dois responderem e abre o navegador. Use `-SemNavegador` para não abrir a aba automaticamente.
+
+### Modo manual
+
+Dois processos, **os dois precisam estar rodando**, cada um na sua janela:
+
+```powershell
+# janela 1 - backend
+cd backend
+..\.venv\Scripts\python.exe -m uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+```powershell
+# janela 2 - frontend
+cd frontend
+npm run dev
+```
+
+| Serviço | Endereço |
+|---|---|
+| Interface | [http://localhost:3000](http://localhost:3000) |
+| API | [http://localhost:8000](http://localhost:8000) |
+| Saúde da API | [http://localhost:8000/health](http://localhost:8000/health) |
+| Documentação da API | [http://localhost:8000/docs](http://localhost:8000/docs) |
+
+Na interface, selecione o relatório do ERP (`.xlsx`/`.xls`) e o extrato do banco (`.ofx`/`.xlsx`/`.xls`), até 30 MB cada, e clique em **Executar conciliação**. A página mostra os cinco indicadores, a tabela filtrável de pendências e o botão **Baixar planilha final**.
+
+O navegador envia os arquivos **direto** para o backend — não há proxy no Next.js.
+
+## Como parar
+
+```powershell
+.\parar_conciliador.ps1
+```
+
+O script encerra **apenas** os processos deste projeto, identificados pelos PIDs registrados na inicialização e por quem está escutando nas portas 8000 e 3000 — sempre conferindo antes que o processo pertence a esta pasta. Um servidor de outra pessoa na mesma porta é reportado, nunca encerrado. Nenhum `taskkill /IM python.exe` ou `/IM node.exe` é usado.
+
+Fechar as duas janelas dos servidores também funciona.
+
+## Testes automáticos
 
 ```powershell
 cd backend
-python -m streamlit run streamlit_app.py
+..\.venv\Scripts\python.exe -m pytest
 ```
 
-Acesse [http://localhost:8501](http://localhost:8501). Os arquivos enviados
-ficam somente na pasta local `.web-runtime/`, que não é versionada.
+Ou, da raiz, `.venv\Scripts\python.exe -m pytest backend/tests` (é o que o VS Code usa, já configurado em [`.vscode/settings.json`](.vscode/settings.json)).
+
+Rode antes e depois de qualquer alteração em `backend/src/`. Detalhes em [`backend/tests/README_TESTES.md`](backend/tests/README_TESTES.md).
+
+## Interface Streamlit
+
+Continua disponível e usa **exatamente o mesmo pipeline** da API — os leitores, as regras de conciliação e o exportador não são duplicados na camada visual. Serve como conferência independente do resultado.
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m streamlit run streamlit_app.py
+```
+
+Acesse [http://localhost:8501](http://localhost:8501). Os arquivos enviados ficam somente em `backend/.web-runtime/`, que não é versionada.
+
+O `parar_conciliador.ps1` **não** encerra o Streamlit (ele usa a porta 8501, fora do par 8000/3000) — feche a janela dele quando terminar.
+
+## Comparar Streamlit e API
+
+As duas interfaces chamam a mesma função (`executar_conciliacao_web`), então devem produzir resultado idêntico. Para conferir com os mesmos arquivos:
+
+1. Rode a conciliação na interface web e baixe o `Resultado.xlsx`.
+2. Rode a mesma conciliação no Streamlit e baixe o `Resultado.xlsx`.
+3. Compare **o conteúdo**, não o tamanho nem os bytes do arquivo: dois `.xlsx` gerados em minutos diferentes divergem no carimbo "Gerado em..." do rodapé e nos metadados do zip, mesmo com dados idênticos.
+
+O que precisa bater: total de registros, conciliados, revisão manual, somente banco, somente ERP, valores, datas, favorecidos, motivos de revisão, tipo de conciliação e as duas abas do `Resultado.xlsx`.
+
+Se divergir, **não altere as regras** para forçar igualdade — identifique primeiro em qual camada está a diferença (upload, leitura, serialização, exportação ou interface). A lógica oficial em `backend/src/` é a referência.
 
 ## Linha de comando
 
@@ -136,13 +241,12 @@ ficam somente na pasta local `.web-runtime/`, que não é versionada.
 
 Detalhes completos (com exemplos) em [`docs/REGRAS_DE_CONCILIACAO.md`](docs/REGRAS_DE_CONCILIACAO.md).
 
-## Testes automáticos
+## Solução de problemas
 
-O projeto tem uma suíte de testes (`pytest`) que protege as regras acima contra regressão. Rode antes e depois de qualquer alteração em `backend/src/`:
-
-```powershell
-cd backend
-pytest
-```
-
-Veja [`backend/tests/README_TESTES.md`](backend/tests/README_TESTES.md) para detalhes.
+| Sintoma | Causa provável | O que fazer |
+|---|---|---|
+| `A porta 8000 já está em uso` ao iniciar | Um servidor anterior ficou de pé | `.\parar_conciliador.ps1` e tente de novo |
+| A interface abre mas dá erro ao conciliar | O backend não está rodando | Abra [http://localhost:8000/health](http://localhost:8000/health); deve responder `{"status":"ok"}` |
+| `Não foi possível falar com o servidor de conciliação` | `NEXT_PUBLIC_API_URL` errado, ou backend fora do ar | Confira o `frontend\.env.local` e reinicie o `npm run dev` (variáveis `NEXT_PUBLIC_` só são lidas na inicialização) |
+| O VS Code marca `fastapi` como não encontrado | Interpretador errado selecionado | *Python: Select Interpreter* → o `.venv` da raiz |
+| `next dev` sobe na porta 3001 | Já existe outro Next rodando na 3000 | `.\parar_conciliador.ps1` antes de iniciar |

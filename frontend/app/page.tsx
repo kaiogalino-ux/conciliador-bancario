@@ -489,6 +489,12 @@ export default function Home() {
               <strong>Banco</strong>
             </div>
           </div>
+
+          <p className="local-notice">
+            <strong>Modo local</strong>
+            Os arquivos são processados neste computador. O sistema funciona
+            enquanto o servidor local estiver aberto.
+          </p>
         </section>
 
         <section className="workflow-section" id="fluxo">
