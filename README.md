@@ -1,12 +1,14 @@
-# Conciliador Bancário - GestãoClick
+# Conciliador Bancário
 
-Automatiza a conciliação entre os lançamentos exportados do ERP GestãoClick (contas a pagar) e o extrato bancário de 1 banco (OFX ou Excel). Roda pelo terminal/VS Code, sem interface gráfica.
+Automatiza a conciliação entre os lançamentos exportados do sistema ERP
+(contas a pagar) e o extrato bancário de 1 banco (OFX ou Excel). Pode ser
+executado pelo terminal ou pela interface web local.
 
 ## Estrutura do projeto
 
 ```
 dados/
-  ERP/       -> Excel exportado do GestãoClick (o mais recente é usado automaticamente)
+  ERP/       -> Excel exportado do ERP (o mais recente é usado automaticamente)
   Banco/     -> Extrato bancário (.ofx, .xlsx ou .xls) (o mais recente é usado automaticamente)
 resultado/
   Resultado.xlsx  -> gerado a cada execução, com 2 abas (ver abaixo)
@@ -22,14 +24,51 @@ src/
 tests/              -> testes automáticos (pytest) que protegem as regras de conciliação
 docs/               -> documentação de estado do projeto, regras e histórico de decisões
 main.py             -> ponto de entrada
+streamlit_app.py     -> interface web local em Streamlit
+streamlit_ui/        -> estilos visuais da interface Streamlit
 requirements.txt
 ```
 
 Esta estrutura não deve ser alterada sem autorização — o projeto deve apenas evoluir a partir daqui. As regras completas de negócio estão em [`CLAUDE.md`](CLAUDE.md) e em [`docs/REGRAS_DE_CONCILIACAO.md`](docs/REGRAS_DE_CONCILIACAO.md).
 
+## Interface Streamlit local
+
+A interface Streamlit usa o mesmo pipeline Python de `main.py`: os leitores,
+as regras de conciliação e o exportador não são duplicados na camada visual.
+
+1. Ative o `.venv` e instale as dependências:
+   ```powershell
+   pip install -r requirements.txt
+   ```
+2. Inicie a interface Streamlit:
+   ```powershell
+   python -m streamlit run streamlit_app.py
+   ```
+3. Acesse [http://localhost:8501](http://localhost:8501).
+4. Selecione o relatório do ERP (`.xlsx` ou `.xls`) e o extrato do banco
+   (`.ofx`, `.xlsx` ou `.xls`).
+5. Clique em **Executar conciliação**. A página apresenta os cinco indicadores,
+   a tabela filtrável de pendências e o botão **Baixar planilha final**.
+
+Os arquivos enviados pela interface ficam somente na pasta local
+`.web-runtime/`, que não é versionada. Nenhum arquivo financeiro é enviado
+para uma hospedagem web. A camada opcional de IA mantém o comportamento
+configurado no `.env`.
+
+### Interface Next.js alternativa
+
+A interface anterior continua disponível e pode ser iniciada separadamente:
+
+```powershell
+npm.cmd install
+npm.cmd run dev
+```
+
+Ela fica disponível em [http://localhost:3000](http://localhost:3000).
+
 ## Como usar
 
-1. **Excel do GestãoClick**: coloque o relatório exportado (`.xlsx` ou `.xls`) dentro de `dados/ERP/`. Se houver mais de um arquivo, o mais recente (por data de modificação) é usado automaticamente.
+1. **Excel do ERP**: coloque o relatório exportado (`.xlsx` ou `.xls`) dentro de `dados/ERP/`. Se houver mais de um arquivo, o mais recente (por data de modificação) é usado automaticamente.
 2. **Extrato do banco**: coloque o arquivo (`.ofx`, `.xlsx` ou `.xls`) dentro de `dados/Banco/`. Da mesma forma, o mais recente é usado.
 3. **Instalar dependências** (uma vez só, com o `.venv` ativado):
    ```

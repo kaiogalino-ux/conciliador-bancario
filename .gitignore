@@ -6,6 +6,15 @@
 .venv/
 __pycache__/
 *.pyc
+node_modules/
+.next/
+.open-next/
+.wrangler/
+nexa-18-site.tar.gz
+.openai/*.png
+.openai/*.log
+.sites-source-temp/
+.web-runtime/
 
 # Saídas geradas a cada execução (ver CLAUDE.md) — não fazem parte do
 # código-fonte.
