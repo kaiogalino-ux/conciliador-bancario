@@ -17,7 +17,7 @@ O projeto é dividido em duas metades independentes:
 > | **Modo local** | `http://localhost:8000` (ou `127.0.0.1`) | Neste computador. Nenhum arquivo sai da máquina. |
 > | **Modo hospedado** | a URL do backend no Render | Num servidor remoto. Os arquivos **saem** da máquina. |
 >
-> A página informa o modo ativo no badge do cabeçalho ("Ambiente local" ou "Ambiente de testes hospedado") e na mensagem abaixo do título. Ela nunca afirma processamento local quando a URL configurada é remota.
+> A página informa o modo ativo no badge do cabeçalho ("Ambiente local" ou "Ambiente hospedado") e na mensagem abaixo do título. Ela nunca afirma processamento local quando a URL configurada é remota.
 >
 > - **Nunca envie arquivos financeiros para o GitHub.** As pastas `backend/dados/`, `backend/logs/`, `backend/resultado/` e `backend/.web-runtime/` estão no `.gitignore` justamente por isso — mas confira o `git status` antes de qualquer commit.
 > - O `backend/.env` contém credenciais reais e também nunca é versionado.
@@ -188,7 +188,7 @@ Fechar as duas janelas dos servidores também funciona.
 
 ## Execução hospedada (Vercel + Render)
 
-Versão de **testes**, acessível pela internet, sem depender de nenhum servidor aberto na sua máquina. São dois serviços, porque a Vercel não executa Python:
+Versão hospedada, acessível pela internet, sem depender de nenhum servidor aberto na sua máquina. São dois serviços, porque a Vercel não executa Python:
 
 | Metade | Host | O que roda | Configuração |
 |---|---|---|---|
@@ -212,9 +212,9 @@ Os quatro valores têm que ser coerentes entre si, ou o navegador bloqueia a cha
 
 ### O que muda para quem usa
 
-- **Os arquivos são enviados ao backend.** No modo hospedado, o ERP e o extrato saem do seu computador e são processados no servidor do Render. A interface avisa isso no badge "Ambiente de testes hospedado" e na mensagem "Modo hospedado".
+- **Os arquivos são enviados ao backend.** No modo hospedado, o ERP e o extrato saem do seu computador e são processados no servidor do Render. A interface avisa isso no badge "Ambiente hospedado" e na mensagem "Modo hospedado".
 - **Baixe o `Resultado.xlsx` ao final de cada execução.** O ERP e o extrato são apagados do servidor assim que a conciliação termina; só o resultado fica, e apenas até a limpeza das execuções antigas. Não existe histórico no servidor — se você fechar a aba sem baixar, a execução se perde e é preciso rodar de novo.
-- **Nesta fase de testes, use apenas arquivos sintéticos ou previamente autorizados.** Ver a limitação de autenticação abaixo.
+- **Como ainda não há autenticação individual (ver abaixo), use apenas arquivos sintéticos ou previamente autorizados.**
 
 ### Autenticação: o que existe hoje
 

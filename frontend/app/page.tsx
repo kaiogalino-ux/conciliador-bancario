@@ -489,7 +489,7 @@ export default function Home() {
           }
         >
           <i />
-          {MODO_LOCAL ? "Ambiente local" : "Ambiente de testes hospedado"}
+          {MODO_LOCAL ? "Ambiente local" : "Ambiente hospedado"}
         </span>
       </header>
 
@@ -497,7 +497,7 @@ export default function Home() {
         <section className="hero hero--visual" id="inicio">
           <h1 className="hero__title">
             <span>Bank</span>
-            <strong>Reconciliation</strong>
+            <strong>Conciliation</strong>
           </h1>
           <div
             className="reconciliation-signal reconciliation-signal--visual"
@@ -549,8 +549,8 @@ export default function Home() {
               configurado para esta versão. Aguarde a conclusão e baixe o
               Resultado.xlsx ao final.
               <span className="local-notice__aviso">
-                Nesta fase de testes, utilize apenas arquivos sintéticos ou
-                previamente autorizados.
+                Como ainda não há autenticação individual, utilize apenas
+                arquivos sintéticos ou previamente autorizados.
               </span>
             </p>
           )}
@@ -959,7 +959,7 @@ export default function Home() {
         <p>
           {MODO_LOCAL
             ? "Os arquivos são processados localmente e não são enviados para uma hospedagem externa."
-            : "Os arquivos enviados são processados no servidor configurado para esta versão de testes."}
+            : "Os arquivos enviados são processados no servidor configurado para esta versão hospedada."}
         </p>
         <span>Regra de data: 0 dia de tolerância</span>
       </footer>
