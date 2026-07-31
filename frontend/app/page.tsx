@@ -20,43 +20,6 @@ type UploadKind = "erp" | "bank";
 
 const PAGE_SIZE = 8;
 
-/**
- * Onde esta versão publicada processa os arquivos, derivado da URL da API.
- *
- * O default repete o de lib/api.ts de propósito: sem NEXT_PUBLIC_API_URL
- * configurada, o destino é o uvicorn da própria máquina. A variável é inlinada
- * no build (a página é estática), então o modo é fixo por publicação — que é
- * exatamente o necessário aqui: o aviso precisa descrever o backend para onde
- * ESTA versão envia os arquivos, não um estado de runtime.
- */
-const API_URL_CONFIGURADA =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-/**
- * Só considera local o que realmente é a própria máquina.
- *
- * A checagem é pelo hostname, não por substring: "https://localhost.exemplo.com"
- * contém "localhost" e é um host remoto. Qualquer URL que não dê para
- * interpretar cai em hospedado — na dúvida, a página nunca afirma que os
- * arquivos ficam no computador.
- */
-function ehEnderecoLocal(url: string): boolean {
-  let hostname: string;
-  try {
-    hostname = new URL(url).hostname;
-  } catch {
-    return false;
-  }
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "[::1]" ||
-    hostname.endsWith(".localhost")
-  );
-}
-
-const MODO_LOCAL = ehEnderecoLocal(API_URL_CONFIGURADA);
-
 const processingMessages = [
   "Lendo a estrutura dos arquivos",
   "Aplicando a regra de data exata",
@@ -483,14 +446,6 @@ export default function Home() {
           <a href="#fluxo">Nova conciliação</a>
           <a href="#resultado">Resultado</a>
         </nav>
-        <span
-          className={
-            MODO_LOCAL ? "local-badge" : "local-badge local-badge--hospedado"
-          }
-        >
-          <i />
-          {MODO_LOCAL ? "Ambiente local" : "Ambiente hospedado"}
-        </span>
       </header>
 
       <main id="conteudo">
@@ -502,11 +457,7 @@ export default function Home() {
           <div
             className="reconciliation-signal reconciliation-signal--visual"
             role="img"
-            aria-label={
-              MODO_LOCAL
-                ? "Fluxo visual entre o ERP, a conciliação local e o banco"
-                : "Fluxo visual entre o ERP, a conciliação no servidor configurado e o banco"
-            }
+            aria-label="Fluxo visual entre o ERP, a conciliação e o banco"
           >
             <div className="signal-source signal-source--erp">
               <span>
@@ -535,25 +486,6 @@ export default function Home() {
               <strong>Banco</strong>
             </div>
           </div>
-
-          {MODO_LOCAL ? (
-            <p className="local-notice">
-              <strong>Modo local</strong>
-              Os arquivos são processados neste computador. O sistema funciona
-              enquanto o servidor local estiver aberto.
-            </p>
-          ) : (
-            <p className="local-notice local-notice--hospedado">
-              <strong>Modo hospedado</strong>
-              Os arquivos selecionados são enviados ao servidor de processamento
-              configurado para esta versão. Aguarde a conclusão e baixe o
-              Resultado.xlsx ao final.
-              <span className="local-notice__aviso">
-                Como ainda não há autenticação individual, utilize apenas
-                arquivos sintéticos ou previamente autorizados.
-              </span>
-            </p>
-          )}
         </section>
 
         <section className="workflow-section" id="fluxo">
@@ -949,18 +881,9 @@ export default function Home() {
           </span>
           <span className="brand__copy">
             <strong>concilia</strong>
-            <small>
-              {MODO_LOCAL
-                ? "Processamento no seu computador"
-                : "Processamento no servidor configurado"}
-            </small>
+            <small>ERP · Banco</small>
           </span>
         </div>
-        <p>
-          {MODO_LOCAL
-            ? "Os arquivos são processados localmente e não são enviados para uma hospedagem externa."
-            : "Os arquivos enviados são processados no servidor configurado para esta versão hospedada."}
-        </p>
         <span>Regra de data: 0 dia de tolerância</span>
       </footer>
     </>
