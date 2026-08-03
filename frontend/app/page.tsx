@@ -24,6 +24,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { RainbowButton } from "@/components/ui/rainbow-button";
 import {
   baixarResultado,
   enviarConciliacao,
@@ -569,15 +570,15 @@ export default function Home() {
                 </small>
               </span>
             </div>
-            <button
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-500 px-6 py-3 text-sm font-semibold text-zinc-950 shadow-[0_0_30px_rgba(34,211,238,0.35)] transition-all hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-black/10 disabled:text-zinc-400 disabled:shadow-none dark:disabled:bg-white/10 dark:disabled:text-zinc-500"
+            <RainbowButton
+              className="gap-2"
               type="button"
               disabled={!erpFile || !bankFile || isProcessing}
               onClick={executeReconciliation}
             >
               {isProcessing ? (
                 <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-950/30 border-t-zinc-950" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />
                   Conciliando
                 </>
               ) : (
@@ -586,7 +587,7 @@ export default function Home() {
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}
-            </button>
+            </RainbowButton>
           </div>
 
           <div

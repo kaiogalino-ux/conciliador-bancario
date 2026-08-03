@@ -2,6 +2,38 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+:root {
+  /* Botão RainbowButton: cor do texto/ícone e do anel de foco. */
+  --primary-foreground: 210 40% 98%;
+  --ring: 199 89% 48%;
+
+  /* Botão RainbowButton: matizes do gradiente do borda animada. */
+  --color-1: 0 100% 63%;
+  --color-2: 270 100% 63%;
+  --color-3: 210 100% 63%;
+  --color-4: 195 100% 63%;
+  --color-5: 90 100% 63%;
+}
+
+.dark {
+  --primary-foreground: 224 71% 4%;
+}
+
+@theme inline {
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-ring: hsl(var(--ring));
+  --animate-rainbow: rainbow 3s linear infinite;
+}
+
+@keyframes rainbow {
+  0% {
+    background-position: 0%;
+  }
+  100% {
+    background-position: 200%;
+  }
+}
+
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 6rem;
