@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { RainbowButton } from "@/components/ui/rainbow-button";
+import { Dock, DockIcon, DockItem, DockLabel } from "@/components/ui/dock";
 import {
   baixarResultado,
   enviarConciliacao,
@@ -38,6 +39,12 @@ import {
 type UploadKind = "erp" | "bank";
 
 const PAGE_SIZE = 8;
+
+const DOCK_ITEMS = [
+  { href: "#fluxo", label: "nova conciliação", Icon: FilePlus2 },
+  { href: "#resultado", label: "resultado", Icon: BarChart3 },
+  { href: "#inicio", label: "home", Icon: HomeIcon },
+];
 
 const processingMessages = [
   "Lendo a estrutura dos arquivos",
@@ -408,34 +415,27 @@ export default function Home() {
       <header className="sticky top-3 z-50 mx-auto flex w-[min(1240px,calc(100%-2rem))] items-center gap-4 rounded-2xl border border-black/10 bg-white/70 px-5 py-3 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/70">
         <span aria-hidden="true" className="hidden h-9 w-9 shrink-0 sm:block" />
 
-        <nav
-          aria-label="Navegação principal"
-          className="flex flex-1 items-center justify-center gap-1 sm:gap-2"
-        >
-          <a
-            href="#fluxo"
-            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/5 dark:hover:text-white sm:px-3"
-          >
-            <FilePlus2 className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
-            <span className="hidden sm:inline">nova conciliação</span>
-          </a>
-          <span aria-hidden="true" className="h-4 w-px shrink-0 bg-black/10 dark:bg-white/10" />
-          <a
-            href="#resultado"
-            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/5 dark:hover:text-white sm:px-3"
-          >
-            <BarChart3 className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
-            <span className="hidden sm:inline">resultado</span>
-          </a>
-          <span aria-hidden="true" className="h-4 w-px shrink-0 bg-black/10 dark:bg-white/10" />
-          <a
-            href="#inicio"
-            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/5 dark:hover:text-white sm:px-3"
-          >
-            <HomeIcon className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
-            <span className="hidden sm:inline">home</span>
-          </a>
-        </nav>
+        <div className="relative h-10 flex-1">
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Dock
+              panelHeight={40}
+              magnification={60}
+              distance={120}
+              className="gap-2 px-2"
+            >
+              {DOCK_ITEMS.map(({ href, label, Icon }) => (
+                <a key={href} href={href} aria-label={label}>
+                  <DockItem className="aspect-square rounded-xl text-blue-600 transition-colors hover:bg-black/5 dark:text-blue-400 dark:hover:bg-white/10">
+                    <DockLabel>{label}</DockLabel>
+                    <DockIcon>
+                      <Icon className="h-5 w-5" />
+                    </DockIcon>
+                  </DockItem>
+                </a>
+              ))}
+            </Dock>
+          </div>
+        </div>
 
         <ThemeToggle />
       </header>
