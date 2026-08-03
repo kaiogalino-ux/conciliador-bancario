@@ -82,6 +82,29 @@ def test_ler_excel_aceita_colunas_alternativas_e_filtra_periodo(tmp_path, logger
     ]
 
 
+def test_ler_excel_combina_colunas_de_debito_e_credito_separadas(tmp_path, logger_silencioso):
+    _criar_excel(
+        tmp_path / "extrato.xlsx",
+        [
+            ["Data", "Lançamento", "Dcto.", "Crédito (R$)", "Débito (R$)", "Saldo (R$)"],
+            ["10/07/2026", "PIX ENVIADO FORNECEDOR ALFA", "1", None, 1234.56, 1000.00],
+            ["11/07/2026", "PIX RECEBIDO CLIENTE", "2", 500.00, None, 1500.00],
+            ["12/07/2026", "TARIFA PACOTE DE SERVIÇOS", "3", None, 0, 1500.00],
+        ],
+    )
+
+    resultado = ler_banco(tmp_path, logger_silencioso)
+
+    assert list(resultado.columns) == ["Data", "Valor", "Favorecido", "Origem"]
+    assert len(resultado) == 1
+    assert resultado.iloc[0].to_dict() == {
+        "Data": date(2026, 7, 10),
+        "Valor": -1234.56,
+        "Favorecido": "PIX ENVIADO FORNECEDOR ALFA",
+        "Origem": "Banco",
+    }
+
+
 def test_ler_excel_sem_data_ou_valor_falha_com_mensagem_clara(tmp_path, logger_silencioso):
     _criar_excel(
         tmp_path / "extrato.xlsx",

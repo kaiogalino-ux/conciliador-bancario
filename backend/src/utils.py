@@ -101,6 +101,25 @@ CANDIDATOS_VALOR = [
     "valor r$",
 ]
 
+# Alguns extratos bancários (ex.: Bradesco) não trazem uma única coluna de
+# Valor com sinal — em vez disso, separam Débito e Crédito em colunas
+# distintas. Usados só pelo leitor de banco (`ler_planilha_padrao`) como
+# fallback quando nenhum candidato de CANDIDATOS_VALOR é encontrado; o ERP
+# tem sua própria detecção de coluna e nunca usa este fallback.
+CANDIDATOS_DEBITO = [
+    "debito",
+    "debito (r$)",
+    "valor debito",
+    "valor (debito)",
+]
+
+CANDIDATOS_CREDITO = [
+    "credito",
+    "credito (r$)",
+    "valor credito",
+    "valor (credito)",
+]
+
 CANDIDATOS_FAVORECIDO = [
     "favorecido",
     "fornecedor",
@@ -126,7 +145,13 @@ CANDIDATOS_CATEGORIA = [
 # linha é um cabeçalho de tabela (usado para localizar a linha de cabeçalho
 # real em relatórios que têm título/período antes da tabela).
 TERMOS_CABECALHO = (
-    set(CANDIDATOS_DATA) | set(CANDIDATOS_VALOR) | set(CANDIDATOS_FAVORECIDO) | set(CANDIDATOS_CATEGORIA) | {
+    set(CANDIDATOS_DATA)
+    | set(CANDIDATOS_VALOR)
+    | set(CANDIDATOS_DEBITO)
+    | set(CANDIDATOS_CREDITO)
+    | set(CANDIDATOS_FAVORECIDO)
+    | set(CANDIDATOS_CATEGORIA)
+    | {
         "situacao",
         "status",
         "total",
@@ -424,11 +449,36 @@ def ler_tabela_com_cabecalho_detectado(caminho: Path, logger: logging.Logger):
     return df.reset_index(drop=True), nome_aba, df_bruto
 
 
+def _combinar_debito_credito(
+    debitos: "pd.Series | None", creditos: "pd.Series | None", index: "pd.Index"
+) -> "pd.Series":
+    """Combina colunas separadas de Débito e Crédito numa única coluna de Valor
+    com sinal (débito negativo, crédito positivo — mesma convenção usada em
+    todo o projeto para o lado do banco). Cada linha usa o lado que estiver
+    preenchido e diferente de zero; uma linha sem nenhum dos dois fica vazia
+    (NaN) e é descartada como qualquer outra linha sem Valor."""
+    valores = pd.Series([None] * len(index), index=index, dtype="object")
+
+    if creditos is not None:
+        preenchido = creditos.notna() & (creditos != 0)
+        valores.loc[preenchido] = creditos.loc[preenchido].abs()
+
+    if debitos is not None:
+        preenchido = debitos.notna() & (debitos != 0)
+        valores.loc[preenchido] = -debitos.loc[preenchido].abs()
+
+    return valores.astype(float)
+
+
 def ler_planilha_padrao(caminho: Path, logger: logging.Logger) -> pd.DataFrame:
     """Lê um Excel de ERP ou banco e padroniza para as colunas Data, Valor, Favorecido.
 
     Não faz suposições sobre o conteúdo: se uma coluna obrigatória não for encontrada,
     lança um erro explícito (com diagnóstico) em vez de adivinhar.
+
+    Quando não há uma única coluna de Valor com sinal, mas o extrato traz Débito e
+    Crédito em colunas separadas (comum em extratos bancários), as duas são
+    combinadas numa única coluna de Valor (débito negativo, crédito positivo).
     """
     df, nome_aba, df_bruto = ler_tabela_com_cabecalho_detectado(caminho, logger)
 
@@ -436,17 +486,34 @@ def ler_planilha_padrao(caminho: Path, logger: logging.Logger) -> pd.DataFrame:
     coluna_valor = detectar_coluna(df.columns, CANDIDATOS_VALOR)
     coluna_favorecido = detectar_coluna(df.columns, CANDIDATOS_FAVORECIDO)
 
-    if coluna_data is None or coluna_valor is None:
+    coluna_debito = None
+    coluna_credito = None
+    if coluna_valor is None:
+        coluna_debito = detectar_coluna(df.columns, CANDIDATOS_DEBITO)
+        coluna_credito = detectar_coluna(df.columns, CANDIDATOS_CREDITO)
+
+    if coluna_data is None or (coluna_valor is None and coluna_debito is None and coluna_credito is None):
         reportar_diagnostico_leitura(caminho, nome_aba, df_bruto, df.columns, logger)
         raise ValueError(
-            f"Não foi possível identificar as colunas de Data e/ou Valor em '{caminho.name}' "
-            f"(colunas: {list(df.columns)}). Veja o diagnóstico acima (também disponível em logs/) para mapear "
-            f"as colunas manualmente."
+            f"Não foi possível identificar as colunas de Data e/ou Valor (ou Débito/Crédito) em "
+            f"'{caminho.name}' (colunas: {list(df.columns)}). Veja o diagnóstico acima (também disponível em "
+            f"logs/) para mapear as colunas manualmente."
         )
 
     resultado = pd.DataFrame()
     resultado["Data"] = pd.to_datetime(df[coluna_data], dayfirst=True, errors="coerce").dt.date
-    resultado["Valor"] = df[coluna_valor].apply(converter_valor_monetario)
+
+    if coluna_valor is not None:
+        resultado["Valor"] = df[coluna_valor].apply(converter_valor_monetario)
+    else:
+        logger.info(
+            f"Coluna de Valor não encontrada; combinando Débito ('{coluna_debito}') e "
+            f"Crédito ('{coluna_credito}') numa única coluna de Valor com sinal."
+        )
+        debitos = df[coluna_debito].apply(converter_valor_monetario) if coluna_debito else None
+        creditos = df[coluna_credito].apply(converter_valor_monetario) if coluna_credito else None
+        resultado["Valor"] = _combinar_debito_credito(debitos, creditos, df.index)
+
     resultado["Favorecido"] = df[coluna_favorecido] if coluna_favorecido else ""
 
     resultado = resultado.dropna(subset=["Data", "Valor"])
