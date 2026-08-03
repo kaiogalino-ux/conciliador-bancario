@@ -79,6 +79,13 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatAccept(accept: string) {
+  return accept
+    .split(",")
+    .map((extensao) => extensao.trim().replace(/^\./, "").toUpperCase())
+    .join(", ");
+}
+
 function formatCurrency(value: number | null) {
   if (value === null || Number.isNaN(value)) return "—";
   return new Intl.NumberFormat("pt-BR", {
@@ -190,6 +197,9 @@ function UploadZone({
             </span>
             <strong className="text-sm font-semibold text-zinc-900 dark:text-white">Arraste o arquivo aqui</strong>
             <span className="text-xs text-zinc-500">ou selecione no computador</span>
+            <span className="text-[11px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+              {formatAccept(accept)}
+            </span>
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
@@ -444,10 +454,10 @@ export default function Home() {
         <section id="inicio" className="mx-auto mt-16 flex w-[min(1240px,calc(100%-2rem))] flex-col items-center gap-12 text-center sm:mt-24">
           <h1 className="flex flex-col items-center gap-2">
             <span className="text-xl font-extrabold uppercase tracking-[0.4em] text-cyan-600 dark:text-cyan-400 sm:text-2xl">
-              Bank
+              Conciliação
             </span>
             <strong className="text-4xl font-extrabold uppercase tracking-tight text-zinc-900 dark:text-white sm:text-5xl lg:text-6xl">
-              Conciliation
+              Bancária
             </strong>
           </h1>
 
