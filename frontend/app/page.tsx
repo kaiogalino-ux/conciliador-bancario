@@ -12,10 +12,13 @@ import {
 import {
   AlertTriangle,
   ArrowRight,
+  BarChart3,
   Building2,
   CheckCircle2,
   Download,
+  FilePlus2,
   FileText,
+  Home as HomeIcon,
   Landmark,
   Search,
   Upload,
@@ -402,39 +405,39 @@ export default function Home() {
         Ir para o conteúdo
       </a>
 
-      <header className="sticky top-3 z-50 mx-auto flex w-[min(1240px,calc(100%-2rem))] items-center justify-between gap-6 rounded-2xl border border-black/10 bg-white/70 px-5 py-3 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/70">
-        <a
-          className="flex items-center gap-2.5"
-          href="#inicio"
-          aria-label="Conciliador Bancário — início"
+      <header className="sticky top-3 z-50 mx-auto flex w-[min(1240px,calc(100%-2rem))] items-center gap-4 rounded-2xl border border-black/10 bg-white/70 px-5 py-3 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/70">
+        <span aria-hidden="true" className="hidden h-9 w-9 shrink-0 sm:block" />
+
+        <nav
+          aria-label="Navegação principal"
+          className="flex flex-1 items-center justify-center gap-1 sm:gap-2"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-300">
-            <BrandMark className="h-5 w-5" />
-          </span>
-          <span className="flex flex-col leading-none">
-            <strong className="text-sm font-bold tracking-tight text-zinc-900 dark:text-white">concilia</strong>
-            <small className="text-[10px] uppercase tracking-wide text-zinc-500">
-              ERP · Banco
-            </small>
-          </span>
-        </a>
-        <div className="flex items-center gap-1">
-          <nav aria-label="Navegação principal" className="hidden items-center gap-1 sm:flex">
-            <a
-              href="#fluxo"
-              className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-500 transition-colors hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
-            >
-              Nova conciliação
-            </a>
-            <a
-              href="#resultado"
-              className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-500 transition-colors hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
-            >
-              Resultado
-            </a>
-          </nav>
-          <ThemeToggle />
-        </div>
+          <a
+            href="#fluxo"
+            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/5 dark:hover:text-white sm:px-3"
+          >
+            <FilePlus2 className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+            <span className="hidden sm:inline">nova conciliação</span>
+          </a>
+          <span aria-hidden="true" className="h-4 w-px shrink-0 bg-black/10 dark:bg-white/10" />
+          <a
+            href="#resultado"
+            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/5 dark:hover:text-white sm:px-3"
+          >
+            <BarChart3 className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+            <span className="hidden sm:inline">resultado</span>
+          </a>
+          <span aria-hidden="true" className="h-4 w-px shrink-0 bg-black/10 dark:bg-white/10" />
+          <a
+            href="#inicio"
+            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/5 dark:hover:text-white sm:px-3"
+          >
+            <HomeIcon className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+            <span className="hidden sm:inline">home</span>
+          </a>
+        </nav>
+
+        <ThemeToggle />
       </header>
 
       <main id="conteudo">
