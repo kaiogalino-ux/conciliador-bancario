@@ -129,6 +129,7 @@ A ordem da conciliação deve ser sempre:
 - **Vencimento NUNCA é usado como Data ERP Usada** (regra revisada em 2026-07-10 — ver docs/HISTORICO_DECISOES.md; antes era o 3º fallback). Uma linha sem nenhuma data de pagamento/compensação/confirmação real fica com Data ERP Usada vazia — **não é descartada** e **nunca tenta casar com o banco**; vai direto para Revisão Manual com o motivo `ERP sem data de pagamento/compensação; vencimento não é usado para conciliação` (`MOTIVO_SEM_DATA_PAGAMENTO`), antes de qualquer fase de conciliação.
 - As colunas de data originais (Data de compensação e Vencimento) são preservadas no resultado ("Data de Compensação Original", "Vencimento Original") para auditoria, mesmo quando não são a data usada — Vencimento Original nunca é usado para conciliar, só para consulta.
 - A coluna de Valor aceita formato brasileiro (`1.234,56`, `R$ 1.234,56`, negativo entre parênteses).
+- **Quando o relatório do ERP tem as colunas "Valor" e "Valor Total" ao mesmo tempo, "Valor Total" é usada como Valor ERP** (regra revisada em 2026-08-05, ver docs/HISTORICO_DECISOES.md) — "Valor Total" já inclui juros/multa lançados manualmente num pagamento em atraso, e é esse valor (não o original da conta) que corresponde ao que de fato saiu do banco. Sem juros, as duas colunas são iguais e a troca não muda nada. Essa prioridade vale **só para o ERP**; o lado do banco continua detectando a coluna de Valor na ordem original.
 - O cabeçalho da planilha é localizado automaticamente nas primeiras linhas (relatórios do GestãoClick trazem título/período antes da tabela).
 - O período do relatório ("Período: DD/MM/AAAA à DD/MM/AAAA") é detectado automaticamente e usado para filtrar também o banco — ou pode ser fixado manualmente via `DATA_INICIAL_CONCILIACAO`/`DATA_FINAL_CONCILIACAO` em `utils.py`.
 
@@ -380,6 +381,10 @@ Quando o total de candidatos do ERP de um lote é maior que o total do banco, o 
 ### 8. Recuperação de "Não encontrado no banco" (2026-07-10, revisado em 2026-07-10-d)
 
 Um ERP que ficaria "Não encontrado no banco" deve ser verificado contra o banco inteiro (usado ou não) por valor+data antes de finalizar: candidato único por valor+data, pendente e mutuamente único → concilia por "Valor e data" (nome não é mais exigido — só enriquece para "Valor, data e nome" quando também bate); qualquer outro indício (múltiplos candidatos por valor+data, banco já consumido, só divergência de data em outra data) → Revisão Manual com motivo específico, nunca "Não encontrado" sem explicação. Nunca troca uma conciliação já feita. "FGTS" nunca é tratado como candidato a lote NET EMP, mesmo contendo "RESCISÃO"/"13" no texto.
+
+### 9. Valor Total do ERP com juros (2026-08-05)
+
+Se o relatório do ERP tiver as colunas "Valor" e "Valor Total" ao mesmo tempo, usar "Valor Total" (que já inclui juros/multa de atraso lançados à mão) como Valor ERP — é esse valor que corresponde ao que de fato saiu do banco, não o valor original da conta. Sem juros, as duas colunas são iguais e o resultado não muda. Sem a coluna "Valor Total", continua usando "Valor" normalmente.
 
 ## Checklist após executar python main.py
 

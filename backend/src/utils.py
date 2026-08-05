@@ -9,6 +9,15 @@ import pandas as pd
 
 EXTENSOES_EXCEL = (".xlsx", ".xls")
 
+# Faixa de datas plausíveis para um lançamento financeiro (ver revisão de
+# achados críticos): protege contra uma célula de data sem formatação no
+# Excel, que o pandas interpreta como nanossegundos desde 1970 em vez de
+# rejeitar — o resultado "parece" uma data válida (não é NaT), mas é absurda
+# e nunca deveria ser usada para conciliar. Generosa de propósito (30 anos
+# pra trás, 5 pra frente) para nunca rejeitar uma data real do negócio.
+ANOS_PASSADO_DATA_PLAUSIVEL = 30
+ANOS_FUTURO_DATA_PLAUSIVEL = 5
+
 # Palavras genéricas — tanto do lado do banco quanto do ERP — que não ajudam a
 # diferenciar um lançamento do outro (usadas em normalizar_descricao). Remover
 # essas palavras é o que permite comparar só o que sobra (nomes próprios,
@@ -97,6 +106,22 @@ CANDIDATOS_VALOR = [
     "valor",
     "valor pago",
     "valor total",
+    "valor (r$)",
+    "valor r$",
+]
+
+# Usada só pela leitura do ERP (regra revisada — ver docs/HISTORICO_DECISOES.md):
+# quando o relatório do GestãoClick tem as duas colunas, "Valor Total" (que já
+# inclui juros/multa lançados manualmente no atraso) é preferida sobre "Valor"
+# (o valor original da conta, sem juros) — é o "Valor Total" que corresponde
+# ao que de fato saiu do banco num pagamento em atraso. Sem juros, as duas
+# colunas são iguais, então a troca de prioridade não muda nada nesses casos.
+# Nunca usada pelo lado do banco (`ler_planilha_padrao`), que continua usando
+# CANDIDATOS_VALOR na ordem original.
+CANDIDATOS_VALOR_ERP = [
+    "valor total",
+    "valor",
+    "valor pago",
     "valor (r$)",
     "valor r$",
 ]
@@ -302,6 +327,40 @@ def converter_valor_monetario(valor) -> float | None:
     return round(-numero if negativo else numero, 2)
 
 
+def invalidar_datas_implausiveis(
+    datas: pd.Series, logger: logging.Logger, contexto: str, favorecidos: pd.Series | None = None
+) -> pd.Series:
+    """Descarta (vira NaT) datas fora de uma faixa plausível, avisando no log.
+
+    Protege contra uma célula de data sem formatação no Excel: nesse caso o
+    valor bruto é um número puro (o serial da data), e `pd.to_datetime` desse
+    número o interpreta como nanossegundos desde 1970 em vez de rejeitar —
+    o resultado passa por uma data "válida" (não é NaT), mas é absurdo (ex.:
+    1970-01-01) e nunca deveria ser usado para conciliar. `errors="coerce"`
+    não pega esse caso porque, tecnicamente, o parsing não falhou.
+    """
+    if datas.empty:
+        return datas
+
+    hoje = pd.Timestamp.now()
+    limite_inferior = hoje - pd.DateOffset(years=ANOS_PASSADO_DATA_PLAUSIVEL)
+    limite_superior = hoje + pd.DateOffset(years=ANOS_FUTURO_DATA_PLAUSIVEL)
+    implausiveis = datas.notna() & ((datas < limite_inferior) | (datas > limite_superior))
+
+    if implausiveis.any():
+        for indice in datas.index[implausiveis]:
+            favorecido = favorecidos.loc[indice] if favorecidos is not None else ""
+            logger.warning(
+                f"Data implausível descartada em {contexto} (índice {indice}): '{datas.loc[indice]}' "
+                f"(fora da faixa plausível de {limite_inferior.date()} a {limite_superior.date()}); "
+                f"provavelmente uma célula sem formatação de data no Excel. Favorecido='{favorecido}'"
+            )
+        logger.warning(f"Total de datas implausíveis descartadas em {contexto}: {int(implausiveis.sum())}")
+        datas = datas.mask(implausiveis)
+
+    return datas
+
+
 def _pontuar_linha_como_cabecalho(valores) -> int:
     """Conta quantas células de uma linha correspondem a um termo típico de cabeçalho."""
     pontos = 0
@@ -450,22 +509,37 @@ def ler_tabela_com_cabecalho_detectado(caminho: Path, logger: logging.Logger):
 
 
 def _combinar_debito_credito(
-    debitos: "pd.Series | None", creditos: "pd.Series | None", index: "pd.Index"
+    debitos: "pd.Series | None", creditos: "pd.Series | None", index: "pd.Index", logger: logging.Logger
 ) -> "pd.Series":
     """Combina colunas separadas de Débito e Crédito numa única coluna de Valor
     com sinal (débito negativo, crédito positivo — mesma convenção usada em
     todo o projeto para o lado do banco). Cada linha usa o lado que estiver
     preenchido e diferente de zero; uma linha sem nenhum dos dois fica vazia
-    (NaN) e é descartada como qualquer outra linha sem Valor."""
+    (NaN) e é descartada como qualquer outra linha sem Valor.
+
+    Uma linha com os dois preenchidos ao mesmo tempo é um sinal de planilha
+    malformada (a convenção de extrato é sempre um ou outro, nunca os dois) —
+    o débito prevalece (mesma prioridade das demais colunas de "saída"), mas
+    o caso é sempre avisado no log em vez de decidido em silêncio."""
     valores = pd.Series([None] * len(index), index=index, dtype="object")
 
+    preenchido_credito = creditos.notna() & (creditos != 0) if creditos is not None else pd.Series(False, index=index)
+    preenchido_debito = debitos.notna() & (debitos != 0) if debitos is not None else pd.Series(False, index=index)
+
+    ambos_preenchidos = preenchido_credito & preenchido_debito
+    if ambos_preenchidos.any():
+        for indice in index[ambos_preenchidos]:
+            logger.warning(
+                f"Linha do banco com Débito e Crédito preenchidos ao mesmo tempo (índice {indice}): "
+                f"débito={debitos.loc[indice]!r}, crédito={creditos.loc[indice]!r}. "
+                f"Usando o débito (planilha pode estar malformada)."
+            )
+
     if creditos is not None:
-        preenchido = creditos.notna() & (creditos != 0)
-        valores.loc[preenchido] = creditos.loc[preenchido].abs()
+        valores.loc[preenchido_credito] = creditos.loc[preenchido_credito].abs()
 
     if debitos is not None:
-        preenchido = debitos.notna() & (debitos != 0)
-        valores.loc[preenchido] = -debitos.loc[preenchido].abs()
+        valores.loc[preenchido_debito] = -debitos.loc[preenchido_debito].abs()
 
     return valores.astype(float)
 
@@ -501,7 +575,10 @@ def ler_planilha_padrao(caminho: Path, logger: logging.Logger) -> pd.DataFrame:
         )
 
     resultado = pd.DataFrame()
-    resultado["Data"] = pd.to_datetime(df[coluna_data], dayfirst=True, errors="coerce").dt.date
+    data_banco = pd.to_datetime(df[coluna_data], dayfirst=True, errors="coerce")
+    favorecidos_banco = df[coluna_favorecido] if coluna_favorecido else None
+    data_banco = invalidar_datas_implausiveis(data_banco, logger, coluna_data, favorecidos_banco)
+    resultado["Data"] = data_banco.dt.date
 
     if coluna_valor is not None:
         resultado["Valor"] = df[coluna_valor].apply(converter_valor_monetario)
@@ -512,9 +589,20 @@ def ler_planilha_padrao(caminho: Path, logger: logging.Logger) -> pd.DataFrame:
         )
         debitos = df[coluna_debito].apply(converter_valor_monetario) if coluna_debito else None
         creditos = df[coluna_credito].apply(converter_valor_monetario) if coluna_credito else None
-        resultado["Valor"] = _combinar_debito_credito(debitos, creditos, df.index)
+        resultado["Valor"] = _combinar_debito_credito(debitos, creditos, df.index, logger)
 
     resultado["Favorecido"] = df[coluna_favorecido] if coluna_favorecido else ""
+
+    linhas_invalidas = resultado["Data"].isna() | resultado["Valor"].isna()
+    qtd_invalidas = int(linhas_invalidas.sum())
+    if qtd_invalidas:
+        for indice in resultado.index[linhas_invalidas]:
+            logger.warning(
+                f"Linha do banco descartada por Data ou Valor inválido/vazio: "
+                f"data original='{df.loc[indice, coluna_data]!r}', "
+                f"Favorecido='{resultado.loc[indice, 'Favorecido']}'"
+            )
+        logger.warning(f"Total de linhas do banco descartadas por Data/Valor inválido: {qtd_invalidas}")
 
     resultado = resultado.dropna(subset=["Data", "Valor"])
     return resultado.reset_index(drop=True)

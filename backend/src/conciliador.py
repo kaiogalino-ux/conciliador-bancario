@@ -161,6 +161,15 @@ MOTIVO_NAO_ENCONTRADO_DIVERGENCIA_DATA = (
     "Possível par encontrado em data diferente; conciliação exige a mesma data"
 )
 MOTIVO_NAO_ENCONTRADO_BANCO_CONSUMIDO = "Possível par bancário já consumido por outro lançamento"
+# Motivo revisado (ver revisão de achados críticos): usado no lugar do motivo
+# acima só quando o candidato do banco não está disponível porque pertence a
+# um lote NET EMP/EMPR que NÃO fechou (ficou em Revisão Manual) — nesse caso
+# ele nunca foi de fato consumido por um par conciliado, só continua
+# reservado para o lote. Quando o lote fechou de verdade (consumiu o banco
+# com outro ERP), o motivo "já consumido" continua correto e não muda.
+MOTIVO_NAO_ENCONTRADO_BANCO_RESERVADO_LOTE = (
+    "Possível candidato pertence a um lote NET EMP/EMPR que não fechou; nunca é retirado do lote"
+)
 MOTIVO_NAO_ENCONTRADO_MULTIPLOS = "Múltiplos bancos possíveis para ERP marcado como Não encontrado"
 MOTIVO_NAO_ENCONTRADO_SEM_CANDIDATO = "Nenhum lançamento bancário com valor/data ou nome compatível encontrado"
 # Motivo padrão da coluna "Motivo Não Conciliado" para o lado do banco sem
@@ -193,6 +202,7 @@ MOTIVOS_DIAGNOSTICO = [
     MOTIVO_SEM_DATA_PAGAMENTO,
     MOTIVO_NAO_ENCONTRADO_MULTIPLOS,
     MOTIVO_NAO_ENCONTRADO_BANCO_CONSUMIDO,
+    MOTIVO_NAO_ENCONTRADO_BANCO_RESERVADO_LOTE,
     MOTIVO_NAO_ENCONTRADO_DIVERGENCIA_DATA,
     MOTIVO_NAO_ENCONTRADO_SEM_EVIDENCIA,
 ]
@@ -1228,7 +1238,7 @@ def _banco_tem_identificador_individual(favorecido) -> bool:
 def _resolver_lote_net_empr(
     df_erp: pd.DataFrame, df_banco: pd.DataFrame, indices_erp_pendentes: list, indices_banco_lote_reservados: list,
     logger: logging.Logger,
-) -> tuple[list, set, set]:
+) -> tuple[list, set, set, set]:
     """Fase 3 (ordem obrigatória do CLAUDE.md, passo 11): `indices_banco_lote_reservados`
     já foi separado ANTES da conciliação individual (ver conciliar()) — lançamentos
     NET EMP/EMPR nunca são conciliados por valor e data isoladamente.
@@ -1260,11 +1270,17 @@ def _resolver_lote_net_empr(
 
     linhas: list = []
     resolvidos_erp, resolvidos_banco = set(), set()
+    # Bancos de um grupo que NÃO fechou (ficou em Revisão Manual) — nunca
+    # foram de fato consumidos por um par conciliado, só continuam reservados
+    # para o lote. Usado na verificação final de "Não encontrado no banco"
+    # (ver revisão de achados críticos) para nunca dar a entender, na
+    # auditoria, que já existe um par fechado disputando esse lançamento.
+    banco_lote_nao_fechado: set = set()
 
     logger.info(f"Lançamentos NET EMP/EMPR reservados para lote (nunca individuais): {len(candidatos_banco)}")
 
     if not candidatos_banco:
-        return linhas, resolvidos_erp, resolvidos_banco
+        return linhas, resolvidos_erp, resolvidos_banco, banco_lote_nao_fechado
 
     # Cada lançamento do ERP é classificado num único tipo específico; o que
     # não bate em nenhum tipo específico só entra no balde genérico — evita
@@ -1480,6 +1496,8 @@ def _resolver_lote_net_empr(
 
         resolvidos_erp.update(grupo_erp)
         resolvidos_banco.update(lista_banco)
+        if status_lote != STATUS_CONCILIADO:
+            banco_lote_nao_fechado.update(lista_banco)
 
         # Regra 2 (2026-07-10-b, ver docs/HISTORICO_DECISOES.md): não existe
         # mais aba própria de diagnóstico de lote — o detalhe completo de cada
@@ -1524,12 +1542,12 @@ def _resolver_lote_net_empr(
     logger.info(f"Lotes NET EMP em Revisão Manual: {contagem_revisao}")
     logger.info(f"ERP de lote com divergência de data (Revisão Manual): {contagem_divergencia_data}")
 
-    return linhas, resolvidos_erp, resolvidos_banco
+    return linhas, resolvidos_erp, resolvidos_banco, banco_lote_nao_fechado
 
 
 def _verificar_possiveis_pares_nao_encontrados(
     df_erp: pd.DataFrame, df_banco: pd.DataFrame, indices_erp_finais: list, indices_banco_finais: list,
-    logger: logging.Logger,
+    logger: logging.Logger, banco_lote_nao_fechado: set = frozenset(),
 ) -> tuple[list, set, set]:
     """Regra revisada em 2026-07-10 (ver docs/HISTORICO_DECISOES.md): antes de
     finalizar um ERP como "Não encontrado no banco", verifica se existe um
@@ -1605,9 +1623,18 @@ def _verificar_possiveis_pares_nao_encontrados(
                 j = candidatos[0]
                 banco_ref = j
                 if j not in banco_pendente:
-                    # Caso F/C do pedido: já foi consumido por outro par —
-                    # nunca desfaz a conciliação anterior para "roubar" o banco.
-                    motivo = MOTIVO_NAO_ENCONTRADO_BANCO_CONSUMIDO
+                    # Caso F/C do pedido: nunca desfaz uma conciliação anterior
+                    # (ou um lote) para "roubar" o banco. Distingue as duas
+                    # causas possíveis (ver revisão de achados críticos): se o
+                    # candidato só está reservado para um lote que NÃO fechou,
+                    # nunca foi de fato consumido por um par — dizer "já
+                    # consumido por outro lançamento" enganaria quem for
+                    # auditar depois, dando a entender que existe um par
+                    # fechado quando na verdade o lote só está travado.
+                    if j in banco_lote_nao_fechado:
+                        motivo = MOTIVO_NAO_ENCONTRADO_BANCO_RESERVADO_LOTE
+                    else:
+                        motivo = MOTIVO_NAO_ENCONTRADO_BANCO_CONSUMIDO
                     status_atual = STATUS_REVISAO_MANUAL
                 elif len(apontamentos_banco.get(j, [])) == 1:
                     # Regra 2026-07-10-d: candidato único por valor+data dos
@@ -1803,8 +1830,8 @@ def conciliar(
         )
     df_erp = df_erp.loc[~df_erp.index.isin(indices_erp_sem_data)].copy()
 
-    df_erp["_valor_abs"] = df_erp["Valor"].abs().round(2)
-    df_banco["_valor_abs"] = df_banco["Valor"].abs().round(2)
+    df_erp["_valor_abs"] = (df_erp["Valor"].abs().round(2) * 100).round().astype("int64")
+    df_banco["_valor_abs"] = (df_banco["Valor"].abs().round(2) * 100).round().astype("int64")
     df_erp["_chave_exata"] = list(zip(df_erp["_valor_abs"], df_erp["Data ERP Usada"]))
     df_banco["_chave_exata"] = list(zip(df_banco["_valor_abs"], df_banco["Data"]))
 
@@ -1865,7 +1892,7 @@ def conciliar(
 
     # Passo 11: lote NET EMP/EMPR por soma consolidada — usa só o que sobrou
     # da conciliação individual (nunca reutiliza um lançamento já conciliado).
-    linhas_lote, resolvidos_erp_lote, resolvidos_banco_lote = _resolver_lote_net_empr(
+    linhas_lote, resolvidos_erp_lote, resolvidos_banco_lote, banco_lote_nao_fechado = _resolver_lote_net_empr(
         df_erp, df_banco, indices_erp_pendentes, indices_banco_lote_reservados, logger
     )
 
@@ -1880,7 +1907,9 @@ def conciliar(
     # ERP pendente (Regra 2) — só o lado Banco pode sobrar para
     # `_finalizar_sem_correspondencia`.
     linhas_recuperadas, erp_recuperados, banco_recuperados = (
-        _verificar_possiveis_pares_nao_encontrados(df_erp, df_banco, indices_erp_finais, indices_banco_finais, logger)
+        _verificar_possiveis_pares_nao_encontrados(
+            df_erp, df_banco, indices_erp_finais, indices_banco_finais, logger, banco_lote_nao_fechado,
+        )
     )
     indices_erp_finais_restantes = [i for i in indices_erp_finais if i not in erp_recuperados]
     indices_banco_finais_restantes = [j for j in indices_banco_finais if j not in banco_recuperados]

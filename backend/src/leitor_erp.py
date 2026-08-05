@@ -26,12 +26,13 @@ from src.utils import (
     CANDIDATOS_DATA_PAGAMENTO,
     CANDIDATOS_DATA_VENCIMENTO,
     CANDIDATOS_FAVORECIDO,
-    CANDIDATOS_VALOR,
+    CANDIDATOS_VALOR_ERP,
     EXTENSOES_EXCEL,
     converter_valor_monetario,
     detectar_coluna,
     determinar_periodo_conciliacao,
     encontrar_arquivo_mais_recente,
+    invalidar_datas_implausiveis,
     ler_tabela_com_cabecalho_detectado,
     reportar_diagnostico_leitura,
     selecionar_data_prioritaria,
@@ -59,7 +60,7 @@ def ler_erp(pasta_erp: Path, logger: logging.Logger) -> tuple:
     coluna_compensacao = detectar_coluna(df.columns, CANDIDATOS_DATA_COMPENSACAO)
     coluna_pagamento = detectar_coluna(df.columns, CANDIDATOS_DATA_PAGAMENTO)
     coluna_vencimento = detectar_coluna(df.columns, CANDIDATOS_DATA_VENCIMENTO)
-    coluna_valor = detectar_coluna(df.columns, CANDIDATOS_VALOR)
+    coluna_valor = detectar_coluna(df.columns, CANDIDATOS_VALOR_ERP)
     coluna_favorecido = detectar_coluna(df.columns, CANDIDATOS_FAVORECIDO)
     coluna_categoria = detectar_coluna(df.columns, CANDIDATOS_CATEGORIA)
 
@@ -87,15 +88,25 @@ def ler_erp(pasta_erp: Path, logger: logging.Logger) -> tuple:
         f"{'Sim (' + coluna_compensacao + ')' if coluna_compensacao else 'Não'}"
     )
 
+    favorecidos = df[coluna_favorecido] if coluna_favorecido else None
+
     data_compensacao = (
         pd.to_datetime(df[coluna_compensacao], dayfirst=True, errors="coerce") if coluna_compensacao else None
     )
+    if data_compensacao is not None:
+        data_compensacao = invalidar_datas_implausiveis(data_compensacao, logger, ROTULO_COMPENSACAO, favorecidos)
+
     data_pagamento = (
         pd.to_datetime(df[coluna_pagamento], dayfirst=True, errors="coerce") if coluna_pagamento else None
     )
+    if data_pagamento is not None:
+        data_pagamento = invalidar_datas_implausiveis(data_pagamento, logger, coluna_pagamento, favorecidos)
+
     data_vencimento = (
         pd.to_datetime(df[coluna_vencimento], dayfirst=True, errors="coerce") if coluna_vencimento else None
     )
+    if data_vencimento is not None:
+        data_vencimento = invalidar_datas_implausiveis(data_vencimento, logger, ROTULO_VENCIMENTO, favorecidos)
 
     if data_compensacao is not None:
         qtd_com_compensacao = int(data_compensacao.notna().sum())
@@ -140,6 +151,16 @@ def ler_erp(pasta_erp: Path, logger: logging.Logger) -> tuple:
     # de pagamento/compensação (só vencimento, ou nenhuma data) é PRESERVADA
     # aqui (não descartada): vira Revisão Manual em src/conciliador.py, com
     # motivo explícito, em vez de desaparecer silenciosamente do resultado.
+    linhas_valor_invalido = resultado["Valor"].isna()
+    qtd_valor_invalido = int(linhas_valor_invalido.sum())
+    if qtd_valor_invalido:
+        for indice in resultado.index[linhas_valor_invalido]:
+            logger.warning(
+                f"Linha do ERP descartada por Valor inválido/vazio na coluna '{coluna_valor}': "
+                f"valor original='{df.loc[indice, coluna_valor]!r}', "
+                f"Favorecido='{resultado.loc[indice, 'Favorecido']}'"
+            )
+        logger.warning(f"Total de linhas do ERP descartadas por Valor inválido/vazio: {qtd_valor_invalido}")
     resultado = resultado.dropna(subset=["Valor"])
     resultado["Data ERP Usada"] = resultado["Data ERP Usada"].dt.date
     resultado["Data de Compensação Original"] = resultado["Data de Compensação Original"].dt.date
